@@ -336,6 +336,12 @@ legend { padding: 0; margin-bottom: 12px; font-weight: 600; font-size: 1.3rem; l
 .rv-mini { display: grid; gap: 3px; min-width: 0; }
 .rv-mini span { display: none; font-size: .7rem; color: var(--fg2); font-weight: 500; }
 @media (max-width: 720px) { .rv-mini span { display: block; } }
+.rv-tips { margin-top: 16px; }
+.rv-daynotes { margin-top: 8px; font-size: .86rem; }
+.plan-tips ul { margin: 10px 0 2px; padding-left: 20px; display: grid; gap: 7px; font-size: .88rem; line-height: 1.45; }
+.plan-tips li::marker { color: var(--accent); }
+.pt-note { color: var(--fg2); font-style: italic; display: block !important; }
+.day-note { margin: 8px 0 0; font-style: italic; }
 .rv-foot { display: flex; justify-content: center; margin-top: 18px; }
 /* full plan: phases > weeks > days > exercises */
 .plan-full { border-top: 1px solid var(--hair); padding-top: 10px; }
@@ -1520,7 +1526,7 @@ function normalizePlan(raw, source, parsedBy) {
       return { name, sets: Math.max(1, Math.min(20, parseInt(e.sets) || 3)), reps: String(e.reps ?? "").trim().slice(0, 20) || "10",
         loadKg, equipment: EQUIP.includes(e.equipment) ? e.equipment : guessEquip(name), notes: String(e.notes || "").trim().slice(0, 160) };
     }).filter(Boolean);
-    return { group, label, type: PLAN_TYPES.includes(d && d.type) ? d.type : guessType(label), exercises };
+    return { group, label, type: PLAN_TYPES.includes(d && d.type) ? d.type : guessType(label), notes: String((d && d.notes) || "").trim().slice(0, 400), exercises };
   }).filter(d => d.exercises.length).filter((d, i, all) => {
     // the same workout repeated with no new week or phase heading is a duplicate: keep the first copy
     const focus = x => (x.group + "|" + x.label.replace(/^day\s*\d+\s*·?\s*/i, "")).toLowerCase();
@@ -1533,7 +1539,8 @@ function normalizePlan(raw, source, parsedBy) {
     });
   });
   const name = tidyCase(String((raw && raw.name) || "").trim()).slice(0, 80) || source.replace(/\.pdf$/i, "").slice(0, 60);
-  return { id: uid(), name, source, parsedBy, importedAt: new Date().toISOString(), days };
+  const tips = [...new Set((Array.isArray(raw && raw.tips) ? raw.tips : []).map(t => String(t).replace(/\s+/g, " ").trim()).filter(t => t.length >= 3))].slice(0, 20).map(t => t.slice(0, 400));
+  return { id: uid(), name, source, parsedBy, importedAt: new Date().toISOString(), tips, days };
 }
 
 /* built-in reader: one exercise per line, like "Bench press 4 x 8" or "Squat - 3 sets of 10 @ 60kg".
@@ -1559,46 +1566,70 @@ function quickParse(text) {
     }
     return /^[A-Za-z]/.test(s) ? s : "";
   };
-  const days = []; let cur = null, name = "", phase = "", week = "", n = 0;
+  // prose: sentences of guidance, or lines marked Tip / Note / Important
+  const junk = /©|copyright|all rights reserved|https?:|www\.|\.com\b|^page \d+|^\d+$/i;
+  const isProse = l => !junk.test(l) && (/^(tips?|notes?|important|key|remember|nb)\b\s*[:.\-–]?/i.test(l) || (l.length >= 25 && l.split(" ").length >= 5 && /[a-z]{3,}/.test(l)));
+  const days = [], paras = []; let cur = null, name = "", phase = "", week = "", n = 0, para = null;
   const ctx = () => [phase, week].filter(Boolean).join(" · ");
+  const addProse = (txt, dayCtx) => {
+    txt = txt.replace(/^[•·*\-–\s]+/, "").trim(); if (!txt) return;
+    if (para && para.day === dayCtx && !/[.!?:]$/.test(para.text)) para.text += " " + txt;
+    else { para = { text: txt, day: dayCtx }; paras.push(para); }
+  };
   for (const line of lines) {
-    let m = exRe.exec(line);
-    if (!m && /[.!?]\s/.test(line)) m = exRe.exec(line.split(/[.!?]\s+/).pop());   // an exercise after a sentence of prose
+    let m = exRe.exec(line), lead = "";
+    if (!m && /[.!?]\s/.test(line)) {                                 // an exercise after a sentence of prose
+      const tail = line.split(/[.!?]\s+/).pop(); m = exRe.exec(tail);
+      if (m) lead = line.slice(0, line.length - tail.length).trim();
+    }
     if (!m && line.length <= 70 && ctxRe.test(line)) {
       const ph = /\bphase\s*(\d+|[ivx]+)\b/i.exec(line), wk = /\bweeks?\s*(\d+)(?:\s*(?:[-–]|to|&|and)\s*(\d+))?/i.exec(line);
       const np = ph ? "Phase " + ph[1].toUpperCase() : phase;
       const nw = wk ? (wk[2] ? `Weeks ${wk[1]}–${wk[2]}` : `Week ${wk[1]}`) : (ph ? "" : week);
       if (np !== phase || nw !== week) { phase = np; week = nw; n = 0; cur = null; }
-      continue;
+      para = null; continue;
     }
     if (m) {
+      if (lead && isProse(lead)) addProse(lead, cur && !cur.exercises.length ? cur : null);
+      para = null;
       const exName = cleanName(m[1]); if (!exName) continue;
-      if (!cur) { n++; cur = { group: ctx(), label: `Day ${n}`, exercises: [] }; days.push(cur); }
+      if (!cur) { n++; cur = { group: ctx(), label: `Day ${n}`, exercises: [], notes: [] }; days.push(cur); }
       const rest = m[4] || "", ld = /(\d+(?:\.\d+)?)\s*(kg|lbs?)\b/i.exec(rest);
       cur.exercises.push({ name: exName, sets: +m[2], reps: m[3].replace(/\s+/g, ""), load: ld ? +ld[1] : null, unit: ld ? ld[2] : null,
         notes: rest.replace(ld ? ld[0] : "", "").replace(/^[\s,;@:-]+/, "").trim().slice(0, 120) });
-    } else if (line.length <= 60 && dayRe.test(line)) {
-      n++;
+    } else if (line.length <= 60 && dayRe.test(line) && !/[.!?]$/.test(line)) {
+      n++; para = null;
       const stripped = line.replace(/^(day|workout|session)\s*[a-z0-9]+\b\s*[:.\-–—]?\s*/i, "").replace(/[:\-–]+$/, "").trim();
       const focus = tidyCase(stripped || (/^(day|workout|session)\b/i.test(line) ? "" : line));
-      cur = { group: ctx(), label: `Day ${n}` + (focus ? ` · ${focus}` : ""), exercises: [] }; days.push(cur);
-    } else if (!name && !days.length && line.length <= 70) name = line;
+      cur = { group: ctx(), label: `Day ${n}` + (focus ? ` · ${focus}` : ""), exercises: [], notes: [] }; days.push(cur);
+    } else if (!name && !days.length && line.length <= 70 && !/[.!?]$/.test(line) && !isProse(line)) name = line;
+    else if (isProse(line)) addProse(line, cur && !cur.exercises.length ? cur : null);   // before a day's first exercise it belongs to that day
   }
-  return { name, days };
+  const tips = [];
+  paras.forEach(pp => {
+    let t = pp.text.replace(/^(tips?|notes?|important|key|remember|nb)\b\s*[:.\-–]?\s*/i, m => /^(important)/i.test(m) ? "Important: " : "").trim();
+    if (t.length > 320) { const cut = t.slice(0, 320), end = cut.lastIndexOf(". "); t = (end > 120 ? cut.slice(0, end + 1) : cut.replace(/\s+\S*$/, "") + "…"); }
+    if (t.length < 20) return;
+    if (pp.day) pp.day.notes.push(t); else tips.push(t);
+  });
+  days.forEach(d => { d.notes = d.notes.join(" "); });
+  return { name, days, tips: tips.slice(0, 15) };
 }
 
 function planPrompt(text) {
   return `You convert workout plan documents into structured JSON. Below is text extracted from a PDF; the layout may be scrambled.
 Reply with only JSON in this shape:
-{"name": string, "days": [{"group": string, "label": string, "type": one of ${JSON.stringify(PLAN_TYPES)}, "exercises": [{"name": string, "sets": number, "reps": string, "load": number or null, "unit": "kg" or "lb" or null, "equipment": one of ${JSON.stringify(EQUIP)}, "notes": string}]}]}
+{"name": string, "tips": [string], "days": [{"group": string, "label": string, "type": one of ${JSON.stringify(PLAN_TYPES)}, "notes": string, "exercises": [{"name": string, "sets": number, "reps": string, "load": number or null, "unit": "kg" or "lb" or null, "equipment": one of ${JSON.stringify(EQUIP)}, "notes": string}]}]}
 Rules:
 - One entry in "days" per training day, in order (at most 84).
 - "group" is the phase and/or week the day belongs to, like "Phase 1 · Week 2" or "Week 3"; use "" when the plan has no phases or weeks. If several weeks are identical, list them once with a group like "Weeks 1–3".
 - "label" is "Day N" counted within its group, plus the focus if the plan names one: "Day 1 · Chest, Triceps, Calves".
 - Keep exercise names short and standard ("Barbell bench press"). "reps" can be a range ("8-10") or a time ("30s").
-- Put rest times, tempo or RPE in "notes", briefly. Skip warm-ups unless they are listed as exercises. Ignore prose and tips.
+- Put an exercise's rest time, tempo or RPE in its "notes", briefly. Skip warm-ups unless they are listed as exercises.
+- "tips": the document's important guidance for the whole plan as short standalone points: progression rules, rest periods, warm-up, technique, intensity methods (rest-pause, drop sets, supersets), phase goals and cautions. At most 15, one or two sentences each, keeping the document's meaning. [] if there are none.
+- A day's "notes": guidance that applies only to that day, or "".
 - If there is no workout plan in the text, reply {"name": "", "days": []}.
-Example: {"name":"12-Week Size","days":[{"group":"Phase 1 · Week 1","label":"Day 1 · Chest, Triceps, Calves","type":"Push","exercises":[{"name":"Barbell bench press","sets":3,"reps":"9-11","load":null,"unit":null,"equipment":"Free weights","notes":"Rest 2 min"}]}]}
+Example: {"name":"12-Week Size","tips":["Add weight once you reach the top of the rep range on every set.","Rest 2 minutes between sets in Phase 1."],"days":[{"group":"Phase 1 · Week 1","label":"Day 1 · Chest, Triceps, Calves","type":"Push","notes":"Use rest-pause on the last set of bench press.","exercises":[{"name":"Barbell bench press","sets":3,"reps":"9-11","load":null,"unit":null,"equipment":"Free weights","notes":"Rest 2 min"}]}]}
 
 PDF text:
 """
@@ -1717,6 +1748,7 @@ function renderReview() {
         : `<button class="btn primary" type="button" data-rv="activate">Save and activate</button><button class="btn" type="button" data-rv="save">Save</button>`}
         <button class="link" type="button" data-rv="discard">${mode === "import" ? "Discard" : "Cancel"}</button></div>
     </div>
+    <label class="f rv-tips">Tips & notes for the whole plan<textarea id="rvTips" rows="4" placeholder="One tip per line, e.g. Add 2.5 kg once every set reaches the top of the rep range.">${esc(draft.tipsText ?? (draft.tips || []).join("\n"))}</textarea></label>
     ${draft.days.map((d, di) => `<div class="review-day">
       <div class="rv-day-tools"><span class="eyebrow">Day ${di + 1} of ${draft.days.length}</span>
         <span class="rv-tools">
@@ -1726,6 +1758,7 @@ function renderReview() {
           <button class="btn ghost danger" type="button" data-rvdel="${di}">Delete day</button>
         </span></div>
       <div class="review-day-h"><input aria-label="Phase or week" placeholder="Phase / week (optional)" data-d="${di}" data-k="group" value="${esc(d.group || "")}"><input aria-label="Day name" placeholder="Day name, e.g. Day 1 · Chest" data-d="${di}" data-k="label" value="${esc(d.label)}"><select aria-label="Workout type" data-d="${di}" data-k="type">${opt(PLAN_TYPES, d.type)}</select></div>
+      <input class="rv-daynotes" aria-label="Day ${di + 1} notes" placeholder="Day notes (optional), e.g. Superset the last two exercises" data-d="${di}" data-k="notes" value="${esc(d.notes || "")}">
       <div class="rv-row rv-labels" aria-hidden="true"><span>Exercise</span><span>Sets</span><span>Reps</span><span>Load (${u})</span><span>Equipment</span><span></span></div>
       ${d.exercises.map((e, ei) => `<div class="rv-row rv-ex">
         <input class="rv-name" aria-label="Exercise name" placeholder="Exercise name" data-d="${di}" data-e="${ei}" data-k="name" value="${esc(e.name)}">
@@ -1743,6 +1776,7 @@ function renderReview() {
 $("#review").addEventListener("input", e => {
   const t = e.target; if (!draft) return;
   if (t.id === "rvName") { draft.name = t.value; return; }
+  if (t.id === "rvTips") { draft.tipsText = t.value; return; }
   const di = +t.dataset.d, k = t.dataset.k; if (!k || !draft.days[di]) return;
   if (t.dataset.e == null) { draft.days[di][k] = t.value; return; }
   const ex = draft.days[di].exercises[+t.dataset.e]; if (!ex) return;
@@ -1755,12 +1789,13 @@ async function reviewAction(kind) {
   if (kind === "discard") { draft = null; renderReview(); setStatus(""); return; }
   const name = String(draft.name || "").trim(), mode = draft._mode || "import";
   if (!name) { toast("Give the plan a name."); $("#rvName").focus(); return; }
-  const days = draft.days.map(d => ({ orig: d._orig, day: { group: String(d.group || "").trim(), label: String(d.label || "").trim() || "Day", type: d.type,
+  const days = draft.days.map(d => ({ orig: d._orig, day: { group: String(d.group || "").trim(), label: String(d.label || "").trim() || "Day", type: d.type, notes: String(d.notes || "").trim(),
     exercises: d.exercises.filter(x => String(x.name).trim()).map(x => ({ name: String(x.name).trim(), sets: Math.max(1, parseInt(x.sets) || 1), reps: String(x.reps || "").trim() || "10",
       loadKg: x.loadKg || null, equipment: x.equipment, notes: String(x.notes || "").trim() })) } })).filter(x => x.day.exercises.length);
   if (!days.length) { toast("Add at least one exercise with a name."); return; }
   const plan = { id: draft.id, name, source: draft.source || "", parsedBy: draft.parsedBy || "manual", importedAt: draft.importedAt || new Date().toISOString(),
-    updatedAt: new Date().toISOString(), days: days.map(x => x.day) };
+    updatedAt: new Date().toISOString(), days: days.map(x => x.day),
+    tips: String(draft.tipsText ?? (draft.tips || []).join("\n")).split("\n").map(x => x.replace(/^[\s•·*\-–]+/, "").trim()).filter(Boolean).slice(0, 30) };
   draft = null; renderReview();
   await store.savePlan(plan);
   if (mode === "edit") {
@@ -1838,6 +1873,7 @@ function renderPlans() {
       <div class="plan-head"><h3>${esc(p.name)}</h3>${on ? `<span class="active-dot">Active</span>` : ""}</div>
       <div class="meta"><span class="chip">${p.days.length} days</span><span class="chip">${n} exercises</span>${p.source ? `<span class="chip" title="${esc(p.source)}">${esc(p.source)}</span>` : ""}</div>
       <ul class="plan-days">${p.days.slice(0, 7).map(d => `<li><span>${esc(fullLabel(d))}</span><span>${esc(d.type)} · ${d.exercises.length}</span></li>`).join("")}${p.days.length > 7 ? `<li class="muted">+ ${p.days.length - 7} more days</li>` : ""}</ul>
+      ${p.tips && p.tips.length ? `<details class="plan-full plan-tips" data-pk="${esc(p.id + "|tips")}"${planOpenKeys.has(p.id + "|tips") ? " open" : ""}><summary>Tips & notes · ${p.tips.length}</summary><ul>${p.tips.map(t => `<li>${esc(t)}</li>`).join("")}</ul></details>` : ""}
       ${planTree(p)}
       <div class="form-actions">${on ? `<button class="btn primary" data-go="workouts">Train today</button><button class="btn" data-plan-off>Deactivate</button>` : `<button class="btn primary" data-plan-on="${esc(p.id)}">Activate</button>`}<button class="btn" data-plan-edit="${esc(p.id)}">Edit</button><button class="btn ghost danger" data-plan-del="${esc(p.id)}">Delete</button></div>
     </article>`;
@@ -1879,7 +1915,7 @@ function renderPlanToday(d, curN) {
     </div>
     <details id="planDetails"${planOpen ? " open" : ""}>
       <summary>${day.group ? esc(day.group) + " · " : ""}${esc(day.type)} · ${day.exercises.length} exercise${day.exercises.length > 1 ? "s" : ""}</summary>
-      <div class="plan-list">${day.exercises.map(e => {
+      ${day.notes ? `<p class="cap day-note">${esc(day.notes)}</p>` : ""}<div class="plan-list">${day.exercises.map(e => {
         const ll = e.loadKg || lastLoad(e.name);
         const loadTxt = ll ? `${e.loadKg ? "" : "last "}${fmt(toW(ll), 1)} ${u}` : e.equipment === "Bodyweight" ? "Bodyweight" : "Pick a load";
         return `<div class="plan-ex" style="grid-template-columns:1fr auto"><div style="min-width:0"><div class="ex-name">${esc(e.name)}</div><div class="ex-meta"><span class="chip ${e.equipment === "Machine" ? "blue" : ""}">${esc(e.equipment)}</span></div>${e.notes ? `<div class="ex-note">${esc(e.notes)}</div>` : ""}</div>
@@ -1930,7 +1966,7 @@ function startSession(p, idx) {
   const day = p && p.days[idx];
   const mk = (name, equipment, n, reps, kg, target, notes, type) => ({ id: uid(), name, type, equipment, target, notes, sets: Array.from({ length: n }, () => ({ reps, kg, done: false })) });
   const exercises = day ? day.exercises.map(e => mk(e.name, e.equipment, e.sets, parseInt(e.reps) || "", e.loadKg || lastLoad(e.name) || 0, `${e.sets} × ${e.reps}`, e.notes || "", day.type)) : [];
-  S.session = { id: uid(), planId: p ? p.id : null, planDay: day ? idx : null, title: day ? fullLabel(day) : "Workout", type: day ? day.type : $("#wType").value,
+  S.session = { id: uid(), planId: p ? p.id : null, planDay: day ? idx : null, title: day ? fullLabel(day) : "Workout", dayNotes: day ? day.notes || "" : "", type: day ? day.type : $("#wType").value,
     date: $("#wDate").value || today(), startedAt: Date.now(), pausedAt: null, pausedMs: 0, status: "active", exercises };
   sessionKey = ""; saveSession(true); render(); toast("Workout started");
   $("#planToday").scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1992,6 +2028,8 @@ function renderSession() {
       <div style="min-width:0"><span class="eyebrow">${paused ? "Paused" : "Workout in progress"}</span><h3>${esc(s.title)}</h3></div>
       <div class="timer" id="sTimer">${fmtClock(sessElapsed(s))}</div>
     </div>
+    ${s.dayNotes ? `<p class="cap" style="margin:0">${esc(s.dayNotes)}</p>` : ""}
+    ${(() => { const pl = s.planId && S.plans.find(x => x.id === s.planId); return pl && pl.tips && pl.tips.length ? `<details class="plan-full plan-tips" data-pk="${esc(pl.id + "|stips")}"${planOpenKeys.has(pl.id + "|stips") ? " open" : ""}><summary>Plan tips · ${pl.tips.length}</summary><ul>${pl.tips.map(t => `<li>${esc(t)}</li>`).join("")}</ul></details>` : ""; })()}
     <div class="session-actions">
       <label class="f s-date">Date<input type="date" id="sDate" value="${esc(s.date)}"></label>
       <button class="btn" type="button" data-s="${paused ? "resume" : "pause"}">${paused ? "Resume" : "Pause"}</button>
@@ -2406,7 +2444,7 @@ function planTree(p) {
   const dayHtml = ([d, i]) => {
     const key = p.id + "|d|" + i;
     return `<details class="pt-day" data-pk="${esc(key)}"${op(key)}><summary><span>${esc(d.label)}${ever.has(i) ? ` <span class="tick" aria-label="done">✓</span>` : ""}</span><span class="muted">${esc(d.type)} · ${d.exercises.length}</span></summary>
-      <ul class="pt-ex">${d.exercises.map(e => `<li><span>${esc(e.name)}${e.notes ? `<span class="muted"> · ${esc(e.notes)}</span>` : ""}</span><span class="muted">${e.sets} × ${esc(e.reps)}${e.loadKg ? ` · ${fmt(toW(e.loadKg), 1)} ${u}` : ""}</span></li>`).join("")}</ul></details>`;
+      <ul class="pt-ex">${d.notes ? `<li class="pt-note">${esc(d.notes)}</li>` : ""}${d.exercises.map(e => `<li><span>${esc(e.name)}${e.notes ? `<span class="muted"> · ${esc(e.notes)}</span>` : ""}</span><span class="muted">${e.sets} × ${esc(e.reps)}${e.loadKg ? ` · ${fmt(toW(e.loadKg), 1)} ${u}` : ""}</span></li>`).join("")}</ul></details>`;
   };
   let html = "";
   tree.forEach((subs, top) => {
