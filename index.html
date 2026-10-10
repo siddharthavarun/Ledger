@@ -108,7 +108,8 @@ a:hover, .link:hover { text-decoration: underline; }
 
 /* ---------- page ---------- */
 .page { max-width: 1024px; margin: 0 auto; padding-inline: max(16px, env(safe-area-inset-left, 0px)); padding-block: 0 calc(96px + env(safe-area-inset-bottom, 0px)); }
-section[role="tabpanel"] { position: relative; }
+section[role="tabpanel"] { position: relative; min-width: 0; }
+.page { overflow-x: clip; }
 .hero { text-align: center; padding-block: clamp(64px, 11vw, 120px) clamp(40px, 6vw, 64px); display: grid; justify-items: center; gap: 14px; }
 .hero .eyebrow { font-size: .95rem; color: var(--fg2); font-weight: 500; }
 .hero h1 { font-size: clamp(3rem, 9vw, 5.75rem); line-height: 1.02; letter-spacing: -.035em; font-weight: 600; }
@@ -279,7 +280,12 @@ legend { padding: 0; margin-bottom: 12px; font-weight: 600; font-size: 1.3rem; l
 .rv-labels { font-size: .72rem; color: var(--fg2); font-weight: 500; margin-top: 12px; }
 .icon-btn { appearance: none; border: 0; background: transparent; color: var(--fg2); width: 32px; height: 32px; border-radius: 50%; cursor: pointer; font-size: 1.15rem; line-height: 1; }
 .icon-btn:hover { background: var(--chip); color: var(--bad); }
-.plan-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 16px; }
+.plan-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(290px, 100%), 1fr)); gap: 16px; }
+.plan-card > * { min-width: 0; }
+.plan-head h3, .ex-name { min-width: 0; overflow-wrap: anywhere; }
+.plan-days li { min-width: 0; }
+.plan-days li span:first-child { min-width: 0; overflow-wrap: anywhere; }
+.day-chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .plan-card { display: grid; gap: 12px; align-content: start; }
 .plan-card .meta { display: flex; gap: 6px; flex-wrap: wrap; }
 .plan-days { display: grid; gap: 6px; font-size: .9rem; margin: 0; padding: 0; list-style: none; }
@@ -291,7 +297,8 @@ legend { padding: 0; margin-bottom: 12px; font-weight: 600; font-size: 1.3rem; l
 .day-chip { appearance: none; border: 0; background: var(--field); color: var(--fg); padding: 8px 14px; border-radius: 999px; font: 500 .86rem var(--font); cursor: pointer; transition: background-color .2s ease, color .2s ease; }
 .day-chip[aria-pressed="true"], .day-chip.on { background: var(--accent); color: var(--on-accent); }
 .day-chip.static { cursor: default; }
-.plan-card .chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.plan-card .meta { min-width: 0; }
+.plan-card .chip { display: block; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .day-chip .tick { color: var(--good); margin-left: 4px; }
 .day-chip[aria-pressed="true"] .tick { color: inherit; }
 .plan-ex { display: grid; grid-template-columns: 1fr auto auto; gap: 12px; align-items: center; padding: 11px 0; border-top: 1px solid var(--hair); font-size: .93rem; }
@@ -1316,11 +1323,14 @@ function guessEquip(n) {
   if (/push-?ups?|pull-?ups?|chin-?ups?|plank|\bdips?\b|burpee|bodyweight|crunch|sit-?ups?|mountain climber|air squat|jumping/.test(n)) return "Bodyweight";
   return "Free weights";
 }
+function tidyCase(t) {
+  return /[A-Z]{3}/.test(t) && t === t.toUpperCase() ? t.toLowerCase().replace(/(^|[\s:(\/,&-])([a-z])/g, (m, a, b) => a + b.toUpperCase()) : t;
+}
 function normalizePlan(raw, source, parsedBy) {
   const days = (Array.isArray(raw && raw.days) ? raw.days : []).slice(0, 28).map((d, i) => {
-    const label = String((d && d.label) || `Day ${i + 1}`).trim().slice(0, 60);
+    const label = tidyCase(String((d && d.label) || `Day ${i + 1}`).trim().replace(/[:\-–]+$/, "").trim()).slice(0, 60);
     const exercises = (Array.isArray(d && d.exercises) ? d.exercises : []).slice(0, 30).map(e => {
-      const name = String((e && e.name) || "").trim().slice(0, 80); if (!name) return null;
+      const name = tidyCase(String((e && e.name) || "").trim()).slice(0, 80); if (!name) return null;
       const unit = /lb/i.test(e.unit || "") ? "lb" : /kg/i.test(e.unit || "") ? "kg" : null;
       const load = +e.load > 0 ? +e.load : null;
       const loadKg = load == null ? null : +((unit === "lb" || (!unit && units() === "imperial")) ? load * KG_PER_LB : load).toFixed(2);
@@ -1328,14 +1338,29 @@ function normalizePlan(raw, source, parsedBy) {
         loadKg, equipment: EQUIP.includes(e.equipment) ? e.equipment : guessEquip(name), notes: String(e.notes || "").trim().slice(0, 160) };
     }).filter(Boolean);
     return { label, type: PLAN_TYPES.includes(d && d.type) ? d.type : guessType(label), exercises };
-  }).filter(d => d.exercises.length);
-  const name = String((raw && raw.name) || "").trim().slice(0, 80) || source.replace(/\.pdf$/i, "");
+  }).filter(d => d.exercises.length).filter((d, i, all) => {
+    // a 12-week PDF often repeats the same workout every week: keep the first copy
+    const key = d.label.toLowerCase(), names = new Set(d.exercises.map(e => e.name.toLowerCase()));
+    return !all.slice(0, i).some(o => {
+      if (o.label.toLowerCase() !== key) return false;
+      const other = new Set(o.exercises.map(e => e.name.toLowerCase()));
+      const both = [...names].filter(n => other.has(n)).length;
+      return both / (new Set([...names, ...other]).size || 1) >= 0.6;
+    });
+  });
+  const name = tidyCase(String((raw && raw.name) || "").trim()).slice(0, 80) || source.replace(/\.pdf$/i, "").slice(0, 60);
   return { id: uid(), name, source, parsedBy, importedAt: new Date().toISOString(), days };
 }
 
 /* built-in reader: one exercise per line, like "Bench press 4 x 8" or "Squat - 3 sets of 10 @ 60kg" */
 function quickParse(text) {
-  const lines = text.split("\n").map(s => s.replace(/\s+/g, " ").trim()).filter(Boolean);
+  const lines = [];
+  text.split("\n").map(s => s.replace(/\s+/g, " ").trim()).filter(Boolean).forEach(line => {
+    const toks = line.split(" "), i = toks.findIndex(t => /[a-z]/.test(t));
+    if (i >= 2 && /\d+\s*(?:x|×|sets?)/i.test(line) && /^(day|week|workout|session|push|pull|legs?|upper|lower|full|chest|back|shoulders|arms|core)\b/i.test(line)) {
+      lines.push(toks.slice(0, i).join(" "), toks.slice(i).join(" "));
+    } else lines.push(line);
+  });
   const exRe = /^(?:[\d•·*\-–]+[.)]?\s+)?([A-Za-z][A-Za-z0-9 '’&\/().+,-]{1,70}?)\s*[:\-–—|,]?\s*(\d{1,2})\s*(?:sets?\s*(?:of|x|×)?\s*|\s*[x×]\s*)(\d{1,3}(?:\s*[-–]\s*\d{1,3})?\s*(?:s|sec|secs|min)?)\b(?:\s*reps?)?(.*)$/i;
   const dayRe = /^(day\s*\d+|week\s*\d+|monday|tuesday|wednesday|thursday|friday|saturday|sunday|workout\s*[a-z0-9]\b|session\s*\d+|(?:push|pull|legs?|upper(?: body)?|lower(?: body)?|full body|core|cardio|chest|back|shoulders|arms)\b)/i;
   const days = []; let cur = null, name = "";
@@ -1387,15 +1412,38 @@ async function pdfText(file) {
   const lib = await getPdfLib();
   const doc = await lib.getDocument({ data: new Uint8Array(await file.arrayBuffer()), isEvalSupported: false, disableFontFace: true }).promise;
   const out = [];
+  const join = parts => parts.join(" ").replace(/\s+/g, " ").trim();
   for (let p = 1; p <= Math.min(doc.numPages, 40); p++) {
-    const tc = await (await doc.getPage(p)).getTextContent(), rows = [];
+    const page = await doc.getPage(p), width = page.getViewport({ scale: 1 }).width, tc = await page.getTextContent();
+    const rows = [];
     tc.items.forEach(it => {
       if (!it.str || !it.str.trim()) return;
       const y = it.transform[5], x = it.transform[4];
       let r = rows.find(r => Math.abs(r.y - y) < 3); if (!r) { r = { y, items: [] }; rows.push(r); }
-      r.items.push({ x, s: it.str });
+      r.items.push({ x, s: it.str, w: it.width || 0 });
     });
-    rows.sort((a, b) => b.y - a.y).forEach(r => out.push(r.items.sort((a, b) => a.x - b.x).map(i => i.s).join(" ").replace(/\s+/g, " ").trim()));
+    // split rows at wide gaps, then decide whether the page is laid out in two text columns
+    const segs = [], gap = Math.max(24, width * 0.06), mid = width / 2;
+    rows.forEach(r => {
+      let cur = null;
+      r.items.sort((a, b) => a.x - b.x).forEach(i => {
+        if (cur && i.x - cur.end > gap) { segs.push(cur); cur = null; }
+        if (!cur) cur = { x: i.x, y: r.y, end: i.x + i.w, parts: [i.s] };
+        else { cur.parts.push(i.s); cur.end = Math.max(cur.end, i.x + i.w); }
+      });
+      if (cur) segs.push(cur);
+    });
+    const leftSegs = segs.filter(sg => sg.x < mid - 10), rightSegs = segs.filter(sg => sg.x >= mid - 10);
+    const wordy = rightSegs.filter(sg => { const t = join(sg.parts); return t.length >= 12 && /[a-z]{3,}/i.test(t); }).length;
+    const spanning = leftSegs.filter(sg => sg.end > mid + 10).length;
+    const twoCol = leftSegs.length >= 4 && wordy >= Math.max(4, rightSegs.length * 0.6) && spanning <= segs.length * 0.15;
+    const lines = list => {
+      const byY = [];
+      list.forEach(sg => { let r = byY.find(r => Math.abs(r.y - sg.y) < 3); if (!r) { r = { y: sg.y, segs: [] }; byY.push(r); } r.segs.push(sg); });
+      return byY.sort((a, b) => b.y - a.y).map(r => join(r.segs.sort((a, b) => a.x - b.x).flatMap(sg => sg.parts)));
+    };
+    if (twoCol) out.push(...lines(leftSegs), "", ...lines(rightSegs));
+    else out.push(...lines(segs));
     out.push("");
   }
   return out.join("\n").trim();
