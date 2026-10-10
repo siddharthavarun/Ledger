@@ -323,6 +323,20 @@ legend { padding: 0; margin-bottom: 12px; font-weight: 600; font-size: 1.3rem; l
 .plan-ex .pe-load { text-align: right; white-space: nowrap; }
 
 
+
+/* plan editor */
+.plan-create { display: flex; justify-content: center; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 14px; color: var(--fg2); font-size: .9rem; }
+.review-top { display: grid; gap: 2px; margin-bottom: 16px; }
+.rv-day-tools { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.rv-tools { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.rv-tools .icon-btn:hover { color: var(--fg); }
+.rv-tools .icon-btn:disabled { opacity: .3; cursor: default; }
+.rv-row .rv-notes { grid-column: 1 / -1; font-size: .84rem; }
+.rv-ex { padding-bottom: 10px; border-bottom: 1px dashed var(--hair); }
+.rv-mini { display: grid; gap: 3px; min-width: 0; }
+.rv-mini span { display: none; font-size: .7rem; color: var(--fg2); font-weight: 500; }
+@media (max-width: 720px) { .rv-mini span { display: block; } }
+.rv-foot { display: flex; justify-content: center; margin-top: 18px; }
 /* full plan: phases > weeks > days > exercises */
 .plan-full { border-top: 1px solid var(--hair); padding-top: 10px; }
 .plan-full summary { cursor: pointer; list-style: none; }
@@ -719,6 +733,7 @@ button.cal-day:hover { box-shadow: inset 0 0 0 1px var(--liquid-edge); }
       <input type="file" id="pdfIn" accept="application/pdf,.pdf" aria-label="Choose a workout plan PDF">
     </div>
     <div class="status-line" id="pdfStatus" role="status" aria-live="polite"></div>
+    <div class="plan-create"><span>No PDF?</span><button class="btn" type="button" id="createPlan">Create a plan from scratch</button></div>
     <div class="tile review" id="review" hidden></div>
 
     <div class="showcase-head" style="margin-top:64px">
@@ -741,7 +756,7 @@ button.cal-day:hover { box-shadow: inset 0 0 0 1px var(--liquid-edge); }
 (() => {
 "use strict";
 const KG_PER_LB = 0.45359237, CM_PER_IN = 2.54, DAY = 86400000;
-const $ = (s, r = document) => r.querySelector(s);
+const $ = (s, r = document) => r.querySelector(s), $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const fmt = (n, d = 0) => Number(n).toLocaleString(undefined, { maximumFractionDigits: d, minimumFractionDigits: d });
 const sum = (a, f) => a.reduce((t, x) => t + (f(x) || 0), 0);
@@ -917,6 +932,7 @@ async function persist(key) {
   catch (e) { console.warn(e); toast("Couldn't save on this device. Free up some storage and try again."); }
 }
 const store = {
+  updateWorkouts: list => { const m = new Map(list.map(w => [w.id, w])); S.workouts = S.workouts.map(w => m.get(w.id) || w); render(); return persist("workouts"); },
   saveSession: sess => { S.session = sess; return persist("session"); },
   deleteWorkouts: ids => { S.workouts = S.workouts.filter(x => !ids.includes(x.id)); render(); return persist("workouts"); },
   saveProfile: p => { S.started = true; S.profile = p; render(); return persist("profile"); },
@@ -1685,28 +1701,44 @@ async function importPdf(file) {
   $("#review").scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
+const blankEx = () => ({ name: "", sets: 3, reps: "10", loadKg: null, equipment: "Free weights", notes: "" });
 function renderReview() {
   const el = $("#review");
   if (!draft) { el.hidden = true; el.innerHTML = ""; return; }
   el.hidden = false;
-  const u = wU(), opt = (list, v) => list.map(t => `<option${t === v ? " selected" : ""}>${t}</option>`).join("");
-  el.innerHTML = `<div class="review-head">
-      <label class="f">Plan name<input id="rvName" value="${esc(draft.name)}"></label>
-      <div class="form-actions"><button class="btn primary" type="button" data-rv="activate">Save and activate</button><button class="btn" type="button" data-rv="save">Save</button><button class="link" type="button" data-rv="discard">Discard</button></div>
+  const u = wU(), opt = (list, v) => list.map(t => `<option${t === v ? " selected" : ""}>${t}</option>`).join(""), mode = draft._mode || "import";
+  const nEx = sum(draft.days, d => d.exercises.length);
+  el.innerHTML = `<div class="review-top"><h3>${mode === "edit" ? "Edit plan" : mode === "create" ? "Create a plan" : "Review imported plan"}</h3>
+      <p class="cap">${mode === "import" ? `From ${esc(draft.source)} · ` : ""}${draft.days.length} day${draft.days.length === 1 ? "" : "s"} · ${nEx} exercise${nEx === 1 ? "" : "s"}. ${mode === "import" ? "Fix anything that looks off, then save." : "Add days and exercises, then save."}</p></div>
+    <div class="review-head">
+      <label class="f">Plan name<input id="rvName" value="${esc(draft.name)}" placeholder="e.g. 4-day upper / lower"></label>
+      <div class="form-actions">${mode === "edit"
+        ? `<button class="btn primary" type="button" data-rv="save">Save changes</button>`
+        : `<button class="btn primary" type="button" data-rv="activate">Save and activate</button><button class="btn" type="button" data-rv="save">Save</button>`}
+        <button class="link" type="button" data-rv="discard">${mode === "import" ? "Discard" : "Cancel"}</button></div>
     </div>
-    <p class="cap" style="margin-top:10px">From ${esc(draft.source)} · ${draft.days.length} days · ${sum(draft.days, d => d.exercises.length)} exercises. Fix anything that looks off.</p>
     ${draft.days.map((d, di) => `<div class="review-day">
-      <div class="review-day-h"><input aria-label="Phase or week" placeholder="Phase / week" data-d="${di}" data-k="group" value="${esc(d.group || "")}"><input aria-label="Day name" data-d="${di}" data-k="label" value="${esc(d.label)}"><select aria-label="Workout type" data-d="${di}" data-k="type">${opt(PLAN_TYPES, d.type)}</select></div>
+      <div class="rv-day-tools"><span class="eyebrow">Day ${di + 1} of ${draft.days.length}</span>
+        <span class="rv-tools">
+          <button class="icon-btn" type="button" data-rvup="${di}" aria-label="Move day ${di + 1} up"${di === 0 ? " disabled" : ""}>↑</button>
+          <button class="icon-btn" type="button" data-rvdown="${di}" aria-label="Move day ${di + 1} down"${di === draft.days.length - 1 ? " disabled" : ""}>↓</button>
+          <button class="btn ghost" type="button" data-rvdup="${di}">Duplicate</button>
+          <button class="btn ghost danger" type="button" data-rvdel="${di}">Delete day</button>
+        </span></div>
+      <div class="review-day-h"><input aria-label="Phase or week" placeholder="Phase / week (optional)" data-d="${di}" data-k="group" value="${esc(d.group || "")}"><input aria-label="Day name" placeholder="Day name, e.g. Day 1 · Chest" data-d="${di}" data-k="label" value="${esc(d.label)}"><select aria-label="Workout type" data-d="${di}" data-k="type">${opt(PLAN_TYPES, d.type)}</select></div>
       <div class="rv-row rv-labels" aria-hidden="true"><span>Exercise</span><span>Sets</span><span>Reps</span><span>Load (${u})</span><span>Equipment</span><span></span></div>
-      ${d.exercises.map((e, ei) => `<div class="rv-row">
-        <input class="rv-name" aria-label="Exercise name" data-d="${di}" data-e="${ei}" data-k="name" value="${esc(e.name)}">
-        <input type="number" min="1" max="20" aria-label="Sets" data-d="${di}" data-e="${ei}" data-k="sets" value="${e.sets}">
-        <input aria-label="Reps" data-d="${di}" data-e="${ei}" data-k="reps" value="${esc(e.reps)}">
-        <input type="number" min="0" step="0.5" aria-label="Load in ${u}" placeholder="—" data-d="${di}" data-e="${ei}" data-k="load" value="${e.loadKg ? +toW(e.loadKg).toFixed(1) : ""}">
+      ${d.exercises.map((e, ei) => `<div class="rv-row rv-ex">
+        <input class="rv-name" aria-label="Exercise name" placeholder="Exercise name" data-d="${di}" data-e="${ei}" data-k="name" value="${esc(e.name)}">
+        <label class="rv-mini"><span>Sets</span><input type="number" min="1" max="20" aria-label="Sets" data-d="${di}" data-e="${ei}" data-k="sets" value="${e.sets}"></label>
+        <label class="rv-mini"><span>Reps</span><input aria-label="Reps" placeholder="8-10" data-d="${di}" data-e="${ei}" data-k="reps" value="${esc(e.reps)}"></label>
+        <label class="rv-mini"><span>Load (${u})</span><input type="number" min="0" step="0.5" aria-label="Load in ${u}" placeholder="—" data-d="${di}" data-e="${ei}" data-k="load" value="${e.loadKg ? +toW(e.loadKg).toFixed(1) : ""}"></label>
         <select class="rv-eq" aria-label="Equipment" data-d="${di}" data-e="${ei}" data-k="equipment">${opt(EQUIP, e.equipment)}</select>
-        <button class="icon-btn" type="button" aria-label="Remove ${esc(e.name)}" data-rm="${di}:${ei}">×</button>
+        <button class="icon-btn" type="button" aria-label="Remove ${esc(e.name || "exercise")}" data-rm="${di}:${ei}">×</button>
+        <input class="rv-notes" aria-label="Notes" placeholder="Notes (optional), e.g. Rest 90 s" data-d="${di}" data-e="${ei}" data-k="notes" value="${esc(e.notes || "")}">
       </div>`).join("")}
-    </div>`).join("")}`;
+      <div><button class="btn ghost" type="button" data-rvaddex="${di}" style="padding-left:0">+ Add exercise</button></div>
+    </div>`).join("")}
+    <div class="rv-foot"><button class="btn" type="button" data-rvaddday>+ Add day</button></div>`;
 }
 $("#review").addEventListener("input", e => {
   const t = e.target; if (!draft) return;
@@ -1721,16 +1753,70 @@ $("#review").addEventListener("input", e => {
 async function reviewAction(kind) {
   if (!draft) return;
   if (kind === "discard") { draft = null; renderReview(); setStatus(""); return; }
-  const name = draft.name.trim();
+  const name = String(draft.name || "").trim(), mode = draft._mode || "import";
   if (!name) { toast("Give the plan a name."); $("#rvName").focus(); return; }
-  const plan = { ...draft, name, days: draft.days.map(d => ({ ...d, label: d.label.trim() || "Day", exercises: d.exercises.filter(x => x.name.trim()) })).filter(d => d.exercises.length) };
-  if (!plan.days.length) { toast("This plan has no exercises left."); return; }
+  const days = draft.days.map(d => ({ orig: d._orig, day: { group: String(d.group || "").trim(), label: String(d.label || "").trim() || "Day", type: d.type,
+    exercises: d.exercises.filter(x => String(x.name).trim()).map(x => ({ name: String(x.name).trim(), sets: Math.max(1, parseInt(x.sets) || 1), reps: String(x.reps || "").trim() || "10",
+      loadKg: x.loadKg || null, equipment: x.equipment, notes: String(x.notes || "").trim() })) } })).filter(x => x.day.exercises.length);
+  if (!days.length) { toast("Add at least one exercise with a name."); return; }
+  const plan = { id: draft.id, name, source: draft.source || "", parsedBy: draft.parsedBy || "manual", importedAt: draft.importedAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString(), days: days.map(x => x.day) };
   draft = null; renderReview();
   await store.savePlan(plan);
+  if (mode === "edit") {
+    // keep logged workouts pointing at the same day after days move or go
+    const map = new Map(); days.forEach((x, i) => { if (x.orig != null) map.set(x.orig, i); });
+    const moved = S.workouts.filter(w => w.planId === plan.id && Number.isInteger(w.planDay) && map.get(w.planDay) !== w.planDay)
+      .map(w => ({ ...w, planDay: map.has(w.planDay) ? map.get(w.planDay) : null }));
+    if (moved.length) await store.updateWorkouts(moved);
+    if (S.session && S.session.planId === plan.id && Number.isInteger(S.session.planDay)) { S.session.planDay = map.has(S.session.planDay) ? map.get(S.session.planDay) : null; saveSession(true); }
+    if (planDaySel && planDaySel.planId === plan.id) planDaySel = null;
+  }
   if (kind === "activate") { await store.setActive(plan.id); planDaySel = null; }
-  setStatus(kind === "activate" ? `“${name}” is active. Find today's session in Workouts.` : `Saved “${name}”.`);
-  toast(kind === "activate" ? "Plan saved and activated" : "Plan saved");
+  render();
+  setStatus(mode === "edit" ? `Saved changes to “${name}”.` : kind === "activate" ? `“${name}” is active. Find today's session in Workouts.` : `Saved “${name}”.`);
+  toast(mode === "edit" ? "Plan updated" : kind === "activate" ? "Plan saved and activated" : "Plan saved");
 }
+function openEditor(d) {
+  draft = d; renderReview(); setStatus("");
+  setTimeout(() => { $("#review").scrollIntoView({ behavior: "smooth", block: "start" }); }, 30);
+}
+document.addEventListener("click", e => {
+  const t = e.target;
+  if (t.closest("#createPlan")) {
+    openEditor({ id: uid(), name: "", source: "", parsedBy: "manual", importedAt: new Date().toISOString(), _mode: "create",
+      days: [{ group: "", label: "Day 1", type: "Push", exercises: [blankEx()] }] });
+    setTimeout(() => $("#rvName") && $("#rvName").focus({ preventScroll: true }), 60);
+    return;
+  }
+  const ed = t.closest("[data-plan-edit]");
+  if (ed) {
+    const p = S.plans.find(x => x.id === ed.dataset.planEdit); if (!p) return;
+    const copy = JSON.parse(JSON.stringify(p)); copy._mode = "edit"; copy.days.forEach((d, i) => { d._orig = i; d.group = d.group || ""; });
+    openEditor(copy); return;
+  }
+  if (!draft) return;
+  const day = (attr) => { const b = t.closest(`[${attr}]`); return b ? [b, +b.getAttribute(attr)] : [null, -1]; };
+  let [b, di] = day("data-rvaddex");
+  if (b) { draft.days[di].exercises.push(blankEx()); renderReview(); const names = $$(`#review [data-d="${di}"][data-k="name"]`); names[names.length - 1].focus(); return; }
+  if (t.closest("[data-rvaddday]")) {
+    const last = draft.days[draft.days.length - 1];
+    draft.days.push({ group: last ? last.group || "" : "", label: `Day ${draft.days.length + 1}`, type: "Full body", exercises: [blankEx()] });
+    renderReview(); const labels = $$('#review [data-k="label"]'); labels[labels.length - 1].focus(); labels[labels.length - 1].select(); return;
+  }
+  [b, di] = day("data-rvdup");
+  if (b) { const c = JSON.parse(JSON.stringify(draft.days[di])); delete c._orig; draft.days.splice(di + 1, 0, c); renderReview(); toast("Day duplicated"); return; }
+  [b, di] = day("data-rvup");
+  if (b && di > 0) { [draft.days[di - 1], draft.days[di]] = [draft.days[di], draft.days[di - 1]]; renderReview(); return; }
+  [b, di] = day("data-rvdown");
+  if (b && di < draft.days.length - 1) { [draft.days[di + 1], draft.days[di]] = [draft.days[di], draft.days[di + 1]]; renderReview(); return; }
+  [b, di] = day("data-rvdel");
+  if (b) {
+    if (draft.days.length === 1) { toast("A plan needs at least one day."); return; }
+    if (!b.classList.contains("armed")) { armButton(b, "Delete this day?", "Delete day"); return; }
+    draft.days.splice(di, 1); renderReview(); return;
+  }
+});
 
 function nextDayIdx(p) {
   const logs = S.workouts.filter(w => w.planId === p.id && Number.isInteger(w.planDay) && w.planDay < p.days.length).sort((a, b) => a.date < b.date ? 1 : -1);
@@ -1753,7 +1839,7 @@ function renderPlans() {
       <div class="meta"><span class="chip">${p.days.length} days</span><span class="chip">${n} exercises</span>${p.source ? `<span class="chip" title="${esc(p.source)}">${esc(p.source)}</span>` : ""}</div>
       <ul class="plan-days">${p.days.slice(0, 7).map(d => `<li><span>${esc(fullLabel(d))}</span><span>${esc(d.type)} · ${d.exercises.length}</span></li>`).join("")}${p.days.length > 7 ? `<li class="muted">+ ${p.days.length - 7} more days</li>` : ""}</ul>
       ${planTree(p)}
-      <div class="form-actions">${on ? `<button class="btn primary" data-go="workouts">Train today</button><button class="btn" data-plan-off>Deactivate</button>` : `<button class="btn primary" data-plan-on="${esc(p.id)}">Activate</button>`}<button class="btn ghost danger" data-plan-del="${esc(p.id)}">Delete</button></div>
+      <div class="form-actions">${on ? `<button class="btn primary" data-go="workouts">Train today</button><button class="btn" data-plan-off>Deactivate</button>` : `<button class="btn primary" data-plan-on="${esc(p.id)}">Activate</button>`}<button class="btn" data-plan-edit="${esc(p.id)}">Edit</button><button class="btn ghost danger" data-plan-del="${esc(p.id)}">Delete</button></div>
     </article>`;
   }).join("");
 }
@@ -2264,7 +2350,7 @@ document.addEventListener("click", async e => {
   const pd = e.target.closest("[data-pday]"); if (pd && planDaySel) { planDaySel.idx = +pd.dataset.pday; render(); return; }
   const rv = e.target.closest("[data-rv]"); if (rv) { reviewAction(rv.dataset.rv); return; }
   const rm = e.target.closest("[data-rm]");
-  if (rm && draft) { const [di, ei] = rm.dataset.rm.split(":").map(Number); draft.days[di].exercises.splice(ei, 1); if (!draft.days[di].exercises.length) draft.days.splice(di, 1); renderReview(); return; }
+  if (rm && draft) { const [di, ei] = rm.dataset.rm.split(":").map(Number); draft.days[di].exercises.splice(ei, 1); renderReview(); return; }
   if (e.target.closest("#stopImport")) importCtl?.abort();
 });
 
