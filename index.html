@@ -217,7 +217,9 @@ label.f, .f { display: grid; gap: 6px; font-size: .8rem; font-weight: 500; color
 .mix-row span:last-child { text-align: right; font-size: .8rem; color: var(--fg2); }
 
 /* workouts */
-.wk-layout { display: grid; grid-template-columns: 360px 1fr; gap: 16px; align-items: start; }
+.wk-layout { display: grid; grid-template-columns: minmax(0, 640px); justify-content: center; gap: 16px; align-items: start; }
+.history-link { order: 3; text-align: center; color: var(--fg2); font-size: .9rem; margin: 4px 0 0; }
+.history { max-width: 860px; margin: 0 auto; }
 .form { display: grid; gap: 14px; }
 .form-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .form-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
@@ -505,6 +507,7 @@ button.cal-day:hover { box-shadow: inset 0 0 0 1px var(--liquid-edge); }
     <div class="nav-links" role="tablist" aria-label="Sections" id="navLinks">
       <span class="nav-pill" aria-hidden="true" id="navPill"></span>
       <button class="tab" role="tab" id="tabbtn-workouts" data-tab="workouts" aria-controls="tab-workouts">Workouts</button>
+      <button class="tab" role="tab" id="tabbtn-history" data-tab="history" aria-controls="tab-history">History</button>
       <button class="tab" role="tab" id="tabbtn-plans" data-tab="plans" aria-controls="tab-plans">Plans</button>
       <button class="tab" role="tab" id="tabbtn-insights" data-tab="insights" aria-controls="tab-insights">Insights</button>
       <button class="tab" role="tab" id="tabbtn-profile" data-tab="profile" aria-controls="tab-profile">Profile</button>
@@ -579,7 +582,7 @@ button.cal-day:hover { box-shadow: inset 0 0 0 1px var(--liquid-edge); }
     <header class="hero">
       <span class="eyebrow">Workouts</span>
       <h1>Every set counts.</h1>
-      <p class="sub">Log it once. We sort it by week, day and equipment.</p>
+      <p class="sub">Start a workout. Finish it. It lands in History.</p>
     </header>
     <div id="finishCard"></div>
     <div id="planToday" style="margin-bottom:16px"></div>
@@ -616,16 +619,26 @@ button.cal-day:hover { box-shadow: inset 0 0 0 1px var(--liquid-edge); }
         </div>
       </form>
 
-      <div style="min-width:0">
-        <div class="filters">
-          <select id="fWeek" aria-label="Filter by week"></select>
-          <select id="fType" aria-label="Filter by workout type"><option value="">All types</option></select>
-          <select id="fEq" aria-label="Filter by equipment">
-            <option value="">All equipment</option><option>Free weights</option><option>Machine</option><option>Bodyweight</option>
-          </select>
-        </div>
-        <div id="wList"></div>
+      <p class="history-link">Finished workouts are saved in <button class="link link-cta" type="button" data-go="history">History</button></p>
+    </div>
+  </section>
+
+  <!-- HISTORY -->
+  <section id="tab-history" role="tabpanel" aria-labelledby="tabbtn-history" hidden>
+    <header class="hero">
+      <span class="eyebrow">History</span>
+      <h1>Every session, kept.</h1>
+      <p class="sub">Finished workouts land here, sorted by week and day.</p>
+    </header>
+    <div class="history">
+      <div class="filters">
+        <select id="fWeek" aria-label="Filter by week"></select>
+        <select id="fType" aria-label="Filter by workout type"><option value="">All types</option></select>
+        <select id="fEq" aria-label="Filter by equipment">
+          <option value="">All equipment</option><option>Free weights</option><option>Machine</option><option>Bodyweight</option>
+        </select>
       </div>
+      <div id="wList"></div>
     </div>
   </section>
 
@@ -1271,7 +1284,7 @@ function renderWorkouts(d) {
   const list = d.workouts.filter(w => (!fw.value || weekNo(w.date) === +fw.value) && (!$("#fType").value || w.type === filt.type) && (!filt.eq || w.equipment === filt.eq))
     .sort((a, b) => a.date < b.date ? 1 : a.date > b.date ? -1 : 0);
   if (!list.length) {
-    $("#wList").innerHTML = `<div class="empty">${d.workouts.length ? "Nothing matches these filters." : "No workouts yet. Your first one will appear here, sorted by week."}</div>`;
+    $("#wList").innerHTML = `<div class="empty">${d.workouts.length ? "Nothing matches these filters." : "No workouts yet. Finish one and it shows up here, sorted by week and day."}</div>`;
     return;
   }
   const u = wU(), byWeek = new Map();
@@ -1387,7 +1400,7 @@ function renderBmi(d) {
 }
 
 /* ---------- events ---------- */
-const TABS = ["workouts", "plans", "insights", "profile"];
+const TABS = ["workouts", "history", "plans", "insights", "profile"];
 function showTab(name, push) {
   TABS.forEach(t => {
     $("#tab-" + t).hidden = t !== name;
@@ -1445,7 +1458,7 @@ $("#wForm").addEventListener("submit", e => {
   else if (!wasEdit && planTag) Object.assign(w, planTag);
   planTag = null;
   store.saveWorkout(w);
-  toast(wasEdit ? "Changes saved" : `Added ${name} to week ${weekNo(date) || 1}`);
+  toast(wasEdit ? "Changes saved" : `Added ${name} to History, week ${weekNo(date) || 1}`);
   resetWorkoutForm(!wasEdit);
   $("#wName").focus();
 });
@@ -2108,7 +2121,7 @@ async function finishSession(btn) {
   await (sessSaving = sessSaving.then(() => store.saveSession(null)));
   sessionDirty = false; render();
   $("#finishCard").scrollIntoView({ behavior: "smooth", block: "start" });
-  toast(`Workout saved · ${fmtDur(minutes)}`);
+  toast(`Saved to History · ${fmtDur(minutes)}`);
 }
 function renderFinish() {
   const el = $("#finishCard"); if (!lastSummary) { el.innerHTML = ""; return; }
@@ -2120,7 +2133,7 @@ function renderFinish() {
     <p class="cap" style="margin:0">${f.cmp
       ? `${f.cmp.volPct != null ? `Volume ${f.cmp.volPct >= 0 ? "up" : "down"} ${Math.abs(f.cmp.volPct)}% on last time (${esc(shortDate(parseISO(f.cmp.date)))})` : `Last time: ${esc(shortDate(parseISO(f.cmp.date)))}`}${f.cmp.minutes ? `, which took ${fmtDur(f.cmp.minutes)}` : ""}.`
       : "First time logging this workout. Next time you'll see how it compares."}</p>
-    <div class="form-actions"><button class="btn primary" type="button" data-fin="done">Done</button><button class="link link-cta" type="button" data-fin="view">View in log</button></div>
+    <div class="form-actions"><button class="btn primary" type="button" data-fin="done">Done</button><button class="link link-cta" type="button" data-fin="view">View in History</button></div>
   </div>`;
 }
 
@@ -2217,9 +2230,9 @@ document.addEventListener("click", e => {
   const fin = t.closest("[data-fin]");
   if (fin && lastSummary) {
     const f = lastSummary; lastSummary = null;
-    if (fin.dataset.fin === "view") { logOpen.init = true; logOpen.weeks.add(String(weekNo(f.date))); logOpen.days.add(f.id); }
+    if (fin.dataset.fin === "view") { logOpen.init = true; logOpen.weeks.add(String(weekNo(f.date))); logOpen.days.add(f.id); showTab("history", true); }
     render();
-    if (fin.dataset.fin === "view") setTimeout(() => { const el = document.querySelector(`#wList [data-day="${CSS.escape(f.id)}"]`); if (el) el.scrollIntoView({ behavior: "smooth", block: "center" }); }, 60);
+    if (fin.dataset.fin === "view") setTimeout(() => { const el = document.querySelector(`#wList [data-day="${CSS.escape(f.id)}"]`); if (el) el.scrollIntoView({ behavior: "smooth", block: "center" }); }, 400);
     return;
   }
   const nav = t.closest("[data-calnav]");
@@ -2229,7 +2242,7 @@ document.addEventListener("click", e => {
     const iso = cal.dataset.cal, keys = [...new Set(D().workouts.filter(w => w.date === iso).map(w => w.sessionId || "d:" + iso))];
     logOpen.init = true; logOpen.weeks.add(String(weekNo(iso))); keys.forEach(k => logOpen.days.add(k));
     filt.week = ""; filt.type = ""; filt.eq = "";
-    showTab("workouts", true); render();
+    showTab("history", true); render();
     setTimeout(() => { const el = document.querySelector(`#wList [data-day="${CSS.escape(keys[0])}"]`); if (el) el.scrollIntoView({ behavior: "smooth", block: "center" }); }, 400);
     return;
   }
