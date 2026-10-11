@@ -2539,7 +2539,7 @@ $("#restoreIn").addEventListener("change", async e => {
 });
 
 /* ---------- offline support ---------- */
-const APP_VERSION = "19";
+const APP_VERSION = "20";
 $("#appVersion").textContent = "App version " + APP_VERSION;
 if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
   // a new version takes over in the background; offer a reload instead of waiting for the next launch

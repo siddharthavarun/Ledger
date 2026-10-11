@@ -1,10 +1,11 @@
 // Rep Ledger service worker: keeps the app usable offline.
 // Bump VERSION whenever you change index.html so phones pick up the new version.
-const VERSION = "rep-ledger-v19";
+const VERSION = "rep-ledger-v20";
 const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icons/icon-192.png", "./icons/icon-512.png", "./icons/apple-touch-icon.png", "./icons/favicon.svg"];
 
 self.addEventListener("install", e => {
-  e.waitUntil(caches.open(VERSION).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  // add files one by one so a missing file (an icon, say) can't stop the app installing for offline use
+  e.waitUntil(caches.open(VERSION).then(c => Promise.all(SHELL.map(u => c.add(u).catch(() => console.warn("Not cached:", u))))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener("activate", e => {
