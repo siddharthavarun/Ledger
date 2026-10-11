@@ -1,4 +1,4 @@
-# Rep Ledger
+# Reppy
 
 A fitness tracker you install on your phone from the browser. Log workouts set by set, import workout plans from PDF, and follow weekly insights on training volume and body weight.
 
