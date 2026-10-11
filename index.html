@@ -1179,7 +1179,12 @@ function wtChart(d) {
 }
 
 /* ---------- render ---------- */
+let demoWasShown = false;
 function render() {
+  // the example data steps aside the first time you save something of your own: say so, so an empty log isn't a surprise
+  const demoNow = isDemo();
+  if (demoWasShown && !demoNow && S.started && S.mode !== "connecting") setTimeout(() => toast("Example data cleared. From here on, everything you see is your own."), 2800);
+  demoWasShown = demoNow && S.mode !== "connecting";
   const d = D(); START = programStart(d);
   const curN = weekNo(today());
   $("#weekBadge").textContent = rangeLabel(curN);
@@ -2534,7 +2539,7 @@ $("#restoreIn").addEventListener("change", async e => {
 });
 
 /* ---------- offline support ---------- */
-const APP_VERSION = "18";
+const APP_VERSION = "19";
 $("#appVersion").textContent = "App version " + APP_VERSION;
 if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
   // a new version takes over in the background; offer a reload instead of waiting for the next launch
