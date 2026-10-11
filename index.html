@@ -473,6 +473,8 @@ button.cal-day:hover { box-shadow: inset 0 0 0 1px var(--liquid-edge); }
 .plan-bar-row.one { grid-template-columns: minmax(0, 360px); }
 .plan-bar-row select { padding: 9px 12px; }
 .plan-bar details { margin-top: 12px; }
+.off-plan { margin: 10px 0 0; }
+.s-title { font: 600 1.2rem var(--font); letter-spacing: -.02em; padding: 6px 10px; margin-top: 4px; max-width: 420px; }
 .plan-bar summary { cursor: pointer; list-style: none; font-size: .86rem; color: var(--accent); display: inline-flex; align-items: center; gap: 6px; border-radius: 6px; }
 .plan-bar summary::-webkit-details-marker { display: none; }
 .plan-bar summary::before { content: "›"; display: inline-block; font-size: 1.1rem; line-height: 1; transition: transform .25s ease; }
@@ -1373,7 +1375,7 @@ function renderWorkouts(d) {
       const date = ex[0].date, plan = ex[0].planId != null ? S.plans.find(p => p.id === ex[0].planId) : null;
       const pday = plan && plan.days[ex[0].planDay];
       const allRun = ex.every(e => e.kind === "run");
-      const title = pday ? fullLabel(pday) : allRun ? ex[0].name : [...new Set(ex.map(e => e.type))].join(" + ") || "Workout";
+      const title = pday ? fullLabel(pday) : allRun ? ex[0].name : ex[0].sessionTitle || [...new Set(ex.map(e => e.type))].join(" + ") || "Workout";
       const mins = sessMinutes(ex), vol = sum(ex, volOf);
       const dOpen = logOpen.days.has(key) || ex.some(e => e.id === inlineId);
       html += `<details class="day" data-day="${esc(key)}" data-liquid${dOpen ? " open" : ""}>
@@ -2000,7 +2002,7 @@ function renderPlanToday(d, curN) {
     el.innerHTML = `<div class="tile plan-bar" data-liquid><div class="plan-head" style="align-items:center"><span><span class="muted">Training from a plan? </span><button class="link link-cta" data-go="plans">Import a PDF</button></span>${startEmpty}</div></div>`;
     return;
   }
-  const planOpts = `<option value="">No plan</option>` + S.plans.map(x => `<option value="${esc(x.id)}"${p && x.id === p.id ? " selected" : ""}>${esc(x.name)}</option>`).join("");
+  const planOpts = `<option value="">No active plan</option>` + S.plans.map(x => `<option value="${esc(x.id)}"${p && x.id === p.id ? " selected" : ""}>${esc(x.name)}</option>`).join("");
   if (!p) {
     el.innerHTML = `<div class="tile plan-bar" data-liquid><div class="plan-bar-row one" style="grid-template-columns:minmax(0,360px) auto">
       <label class="f">Workout plan<select id="planSel">${planOpts}</select></label>${startEmpty}</div></div>`;
@@ -2022,6 +2024,7 @@ function renderPlanToday(d, curN) {
       <label class="f">Day<select id="planDaySel">${dayOpts}</select></label>
       <button class="btn primary" id="startWorkout" type="button">Start workout</button>
     </div>
+    <p class="cap off-plan">Doing something else today? <button class="link link-cta" id="startEmpty" type="button">Start a custom workout</button> Your plan stays active and its next day doesn't move.</p>
     <details id="planDetails"${planOpen ? " open" : ""}>
       <summary>${day.group ? esc(day.group) + " · " : ""}${esc(day.type)} · ${day.exercises.length} exercise${day.exercises.length > 1 ? "s" : ""}</summary>
       ${day.notes ? `<p class="cap day-note">${esc(day.notes)}</p>` : ""}<div class="plan-list">${day.exercises.map(e => {
@@ -2075,7 +2078,7 @@ function startSession(p, idx) {
   const day = p && p.days[idx];
   const mk = (name, equipment, n, reps, kg, target, notes, type) => ({ id: uid(), name, type, equipment, target, notes, sets: Array.from({ length: n }, () => ({ reps, kg, done: false })) });
   const exercises = day ? day.exercises.map(e => mk(e.name, e.equipment, e.sets, parseInt(e.reps) || "", e.loadKg || lastLoad(e.name) || 0, `${e.sets} × ${e.reps}`, e.notes || "", day.type)) : [];
-  S.session = { id: uid(), planId: p ? p.id : null, planDay: day ? idx : null, title: day ? fullLabel(day) : "Workout", dayNotes: day ? day.notes || "" : "", type: day ? day.type : $("#wType").value,
+  S.session = { id: uid(), planId: p ? p.id : null, planDay: day ? idx : null, title: day ? fullLabel(day) : "Custom workout", dayNotes: day ? day.notes || "" : "", type: day ? day.type : $("#wType").value,
     date: $("#wDate").value || today(), startedAt: Date.now(), pausedAt: null, pausedMs: 0, status: "active", exercises };
   sessionKey = ""; saveSession(true); render(); toast("Workout started");
   $("#planToday").scrollIntoView({ behavior: "smooth", block: "start" });
@@ -2134,7 +2137,7 @@ function renderSession() {
   const u = wU(), paused = s.status === "paused";
   el.innerHTML = `<div class="tile session${paused ? " paused" : ""}" id="sessionCard" data-liquid>
     <div class="session-head">
-      <div style="min-width:0"><span class="eyebrow">${paused ? "Paused" : "Workout in progress"}</span><h3>${esc(s.title)}</h3></div>
+      <div style="min-width:0"><span class="eyebrow">${paused ? "Paused" : s.planId ? "Workout in progress" : "Custom workout in progress"}</span>${s.planId ? `<h3>${esc(s.title)}</h3>` : `<input class="s-title" id="sTitle" aria-label="Workout name" placeholder="Name this workout" value="${esc(s.title)}">`}</div>
       <div class="timer" id="sTimer">${fmtClock(sessElapsed(s))}</div>
     </div>
     ${s.dayNotes ? `<p class="cap" style="margin:0">${esc(s.dayNotes)}</p>` : ""}
@@ -2208,7 +2211,7 @@ async function finishSession(btn) {
   for (const { e, sets } of items) {
     const top = sets.reduce((a, x) => (x.kg > a.kg || (x.kg === a.kg && x.reps > a.reps)) ? x : a, sets[0]);
     const w = { id: uid(), date: s.date, name: String(e.name).trim(), type: e.type || s.type, equipment: e.equipment, sets: sets.length, reps: top.reps, kg: top.kg,
-      setsDetail: sets, minutes: null, notes: e.notes || "", sessionId: s.id, sessionMinutes: minutes };
+      setsDetail: sets, minutes: null, notes: e.notes || "", sessionId: s.id, sessionMinutes: minutes, sessionTitle: String(s.title || "").trim() };
     if (s.planId) { w.planId = s.planId; w.planDay = s.planDay; }
     await store.saveWorkout(w);
   }
@@ -2421,6 +2424,7 @@ async function saveInline() {
 
 document.addEventListener("input", e => {
   const t = e.target, s = S.session;
+  if (t.id === "sTitle" && s) { s.title = t.value; saveSession(); return; }
   if (t.id === "sDate" && s) { if (t.value) { s.date = t.value; saveSession(); } return; }
   if (t.dataset.sx != null && s) {
     const ex = s.exercises[+t.dataset.sx]; if (!ex) return;
@@ -2539,7 +2543,7 @@ $("#restoreIn").addEventListener("change", async e => {
 });
 
 /* ---------- offline support ---------- */
-const APP_VERSION = "20";
+const APP_VERSION = "21";
 $("#appVersion").textContent = "App version " + APP_VERSION;
 if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
   // a new version takes over in the background; offer a reload instead of waiting for the next launch
