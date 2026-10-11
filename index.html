@@ -218,6 +218,13 @@ label.f, .f { display: grid; gap: 6px; font-size: .8rem; font-weight: 500; color
 
 /* workouts */
 .wk-layout { display: grid; grid-template-columns: minmax(0, 640px); justify-content: center; gap: 16px; align-items: start; }
+
+/* runs */
+.wk-layout > #runForm { order: 1; }
+.wk-layout > #wForm { order: 2; }
+.run-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr); }
+.run-time { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+@media (max-width: 420px) { .run-row { grid-template-columns: 1fr; } }
 .history-link { order: 3; text-align: center; color: var(--fg2); font-size: .9rem; margin: 4px 0 0; }
 .history { max-width: 860px; margin: 0 auto; }
 .form { display: grid; gap: 14px; }
@@ -587,6 +594,27 @@ button.cal-day:hover { box-shadow: inset 0 0 0 1px var(--liquid-edge); }
     <div id="finishCard"></div>
     <div id="planToday" style="margin-bottom:16px"></div>
     <div class="wk-layout">
+      <form class="tile form" id="runForm" novalidate data-liquid>
+        <div class="form-head"><h3>Log a run</h3><span class="chip blue" id="runPace" aria-live="polite">— /km</span></div>
+        <div class="row">
+          <label class="f">Date<input type="date" id="rDate"></label>
+          <label class="f">Type of run
+            <select id="rType"><option>Easy</option><option>Long</option><option>Tempo</option><option>Intervals</option><option>Recovery</option><option>Race</option><option>Trail</option><option>Treadmill</option></select>
+          </label>
+        </div>
+        <div class="row run-row">
+          <label class="f"><span>Distance (<span id="rUnit">km</span>)</span><input type="number" id="rDist" inputmode="decimal" min="0" max="500" step="0.01" placeholder="5.00"></label>
+          <div class="f">Time
+            <div class="run-time">
+              <input type="number" id="rH" inputmode="numeric" min="0" max="48" step="1" placeholder="h" aria-label="Hours">
+              <input type="number" id="rM" inputmode="numeric" min="0" max="59" step="1" placeholder="min" aria-label="Minutes">
+              <input type="number" id="rS" inputmode="numeric" min="0" max="59" step="1" placeholder="sec" aria-label="Seconds">
+            </div>
+          </div>
+        </div>
+        <label class="f">Notes<input id="rNotes" placeholder="Optional: route, splits, how it felt"></label>
+        <div class="form-actions"><button class="btn primary" type="submit">Add run</button></div>
+      </form>
       <form class="tile form" id="wForm" novalidate data-liquid>
         <div class="form-head"><h3 id="wFormTitle">Log an exercise</h3><span class="chip blue" id="wWeek">Week 1</span></div>
         <div class="row">
@@ -635,7 +663,7 @@ button.cal-day:hover { box-shadow: inset 0 0 0 1px var(--liquid-edge); }
         <select id="fWeek" aria-label="Filter by week"></select>
         <select id="fType" aria-label="Filter by workout type"><option value="">All types</option></select>
         <select id="fEq" aria-label="Filter by equipment">
-          <option value="">All equipment</option><option>Free weights</option><option>Machine</option><option>Bodyweight</option>
+          <option value="">All equipment</option><option>Free weights</option><option>Machine</option><option>Bodyweight</option><option>Run</option>
         </select>
       </div>
       <div id="wList"></div>
@@ -1005,7 +1033,8 @@ function summarize(n, d) {
   });
   const eq = {}, ty = {};
   items.forEach(w => { eq[w.equipment] = (eq[w.equipment] || 0) + (+w.sets || 0); ty[w.type] = (ty[w.type] || 0) + (+w.sets || 0); });
-  return { n, r, items, sessions, timed, sets, volume, minutes, endKg, wDelta, prs, eq, ty };
+  const runs = items.filter(w => w.kind === "run");
+  return { n, r, items, runs, sessions, timed, sets, volume, minutes, endKg, wDelta, prs, eq, ty };
 }
 const pct = (a, b) => b > 0 ? Math.round((a - b) / b * 100) : null;
 function volOf(w) {
@@ -1014,6 +1043,7 @@ function volOf(w) {
     : (+w.sets || 0) * (+w.reps || 0) * (+w.kg || 0);
 }
 function setsText(w) {
+  if (w.kind === "run") return { top: fmtDist(w.distanceKm), sub: `${fmtTime(w.durationSec)} · ${fmtPace(w.durationSec / w.distanceKm)}` };
   const sd = Array.isArray(w.setsDetail) ? w.setsDetail : null, u = wU();
   const one = kg => +kg > 0 ? `${fmt(toW(+kg), 1)} ${u}` : w.equipment === "Bodyweight" ? "Bodyweight" : "—";
   if (!sd || !sd.length) return { top: `${w.sets || 0} × ${w.reps || 0}`, sub: one(w.kg) };
@@ -1029,7 +1059,7 @@ function insightLines(cur, prev, d, isCurrent) {
     const so = isCurrent ? " so far" : "";
     if (cur.sessions >= target) L.push(["good", `${cur.sessions} of ${target} planned sessions${so}. Target met.`]);
     else L.push([isCurrent ? "" : "warn", `${cur.sessions} of ${target} planned sessions${so}.`]);
-  } else L.push(["", `${cur.sessions} workout${cur.sessions > 1 ? "s" : ""}, ${cur.sets} working sets.`]);
+  } else L.push(["", `${cur.sessions} workout${cur.sessions > 1 ? "s" : ""}${cur.sets ? `, ${cur.sets} working sets` : ""}.`]);
   if (cur.minutes) {
     const avg = cur.timed > 1 ? `, about ${fmtDur(cur.minutes / cur.timed)} per workout` : "";
     const vs = prev && prev.minutes ? pct(cur.minutes, prev.minutes) : null;
@@ -1041,6 +1071,10 @@ function insightLines(cur, prev, d, isCurrent) {
     if (c >= 5) L.push(["good", `Volume up ${c}% on last week, to ${fmtVol(cur.volume)} ${u}.`]);
     else if (c <= -15) L.push([isCurrent ? "" : "warn", `Volume ${isCurrent ? "is " : ""}${Math.abs(c)}% below last week${isCurrent ? " so far" : ""}.`]);
     else L.push(["", `Volume steady at ${fmtVol(cur.volume)} ${u} (${c >= 0 ? "+" : ""}${c}%).`]);
+  }
+  if (cur.runs && cur.runs.length) {
+    const km = sum(cur.runs, w => +w.distanceKm), sec = sum(cur.runs, w => +w.durationSec);
+    L.push(["", `Ran ${fmtDist(km)} over ${cur.runs.length} run${cur.runs.length > 1 ? "s" : ""}, average pace ${fmtPace(sec / km)}.`]);
   }
   cur.prs.slice(0, 3).forEach(pr => L.push(["good", `New best on ${pr.name}: ${fmt(toW(pr.kg), 1)} ${u} × ${pr.reps} (+${fmt(toW(pr.gain), 1)} ${u}).`]));
 
@@ -1170,7 +1204,7 @@ function renderInsights(d, curN) {
   $("#heroSub").innerHTML = sub;
 
   $("#heroStats").innerHTML = [
-    ["Workouts", `${cur.sessions}${target ? `<small>/ ${target}</small>` : ""}`, (target ? (cur.sessions >= target ? "Target met" : `${target - cur.sessions} to go this week`) : `${cur.sets} sets`) + (cur.minutes ? ` · ${fmtDur(cur.minutes)}` : ""), target && cur.sessions >= target ? "good" : ""],
+    ["Workouts", `${cur.sessions}${target ? `<small>/ ${target}</small>` : ""}`, (target ? (cur.sessions >= target ? "Target met" : `${target - cur.sessions} to go this week`) : ([cur.sets ? `${cur.sets} sets` : "", cur.runs.length ? fmtDist(sum(cur.runs, w => +w.distanceKm)) + " run" : ""].filter(Boolean).join(" · ") || "Nothing logged yet")) + (cur.minutes ? ` · ${fmtDur(cur.minutes)}` : ""), target && cur.sessions >= target ? "good" : ""],
     ["Volume", `${fmtVol(cur.volume)}<small>${u}</small>`, vc == null ? "First week of data" : `${vc >= 0 ? "+" : ""}${vc}% vs last week so far`, vc != null && vc >= 0 ? "good" : ""],
     ["Body weight", lw ? `${fmt(toW(lw), 1)}<small>${u}</small>` : "—", wd == null ? "No change logged this week" : `${wd <= 0 ? "−" : "+"}${fmt(Math.abs(toW(wd)), 1)} ${u} this week`, wTone],
     ["To goal", toGoal != null ? `${fmt(toW(toGoal), 1)}<small>${u}</small>` : "—", toGoal != null ? eta : "Add a goal weight in Profile", ""]
@@ -1192,6 +1226,7 @@ function renderInsights(d, curN) {
     const chips = [`<span class="chip">${c.sessions} session${c.sessions === 1 ? "" : "s"}</span>`, `<span class="chip">${c.sets} sets</span>`];
     if (c.volume) chips.push(`<span class="chip">${fmtVol(c.volume)} ${u}</span>`);
     if (c.minutes) chips.push(`<span class="chip">${fmtDur(c.minutes)}</span>`);
+    if (c.runs && c.runs.length) chips.push(`<span class="chip">${fmtDist(sum(c.runs, w => +w.distanceKm))} run</span>`);
     if (c.prs.length) chips.push(`<span class="chip good">${c.prs.length} new best${c.prs.length > 1 ? "s" : ""}</span>`);
     items.push(`<li class="wk"><div class="wk-n">W${n}<span>${rangeLabel(n)}</span></div><div><div class="wk-chips">${chips.join("")}</div><ul>${lines.map(([t, s]) => `<li class="${t}">${esc(s)}</li>`).join("")}</ul></div></li>`);
     if (items.length >= 8) break;
@@ -1263,6 +1298,7 @@ $("#addSet").addEventListener("click", () => {
 setRows = defaultSets();
 
 function renderWorkouts(d) {
+  $("#rUnit").textContent = distU(); if (!$("#rDate").value) $("#rDate").value = today(); updateRunPace();
   const stacked = !!(activePlan() || S.session);
   $(".wk-layout").classList.toggle("stacked", stacked);
   if (!planTag && !editingId) $("#wFormTitle").textContent = stacked ? "Log a single exercise" : "Log an exercise";
@@ -1305,12 +1341,13 @@ function renderWorkouts(d) {
     days.forEach((ex, key) => {
       const date = ex[0].date, plan = ex[0].planId != null ? S.plans.find(p => p.id === ex[0].planId) : null;
       const pday = plan && plan.days[ex[0].planDay];
-      const title = pday ? fullLabel(pday) : [...new Set(ex.map(e => e.type))].join(" + ") || "Workout";
+      const allRun = ex.every(e => e.kind === "run");
+      const title = pday ? fullLabel(pday) : allRun ? ex[0].name : [...new Set(ex.map(e => e.type))].join(" + ") || "Workout";
       const mins = sessMinutes(ex), vol = sum(ex, volOf);
       const dOpen = logOpen.days.has(key) || ex.some(e => e.id === inlineId);
       html += `<details class="day" data-day="${esc(key)}" data-liquid${dOpen ? " open" : ""}>
         <summary class="day-h"><span class="dh-main"><b>${esc(title)}</b><span class="muted">${dayName(parseISO(date))}</span></span>
-          <span class="muted dh-meta">${ex.length} exercise${ex.length > 1 ? "s" : ""}${mins ? " · " + fmtDur(mins) : ""}${vol ? ` · ${fmtVol(vol)} ${u}` : ""}</span></summary>`;
+          <span class="muted dh-meta">${allRun ? fmtDist(sum(ex, e => +e.distanceKm)) : `${ex.length} exercise${ex.length > 1 ? "s" : ""}`}${mins ? " · " + fmtDur(mins) : ""}${vol ? ` · ${fmtVol(vol)} ${u}` : ""}</span></summary>`;
       ex.forEach(e => {
         if (e.id === inlineId && inlineDraft) { html += ieHtml(); return; }
         const st = setsText(e);
@@ -1432,6 +1469,12 @@ function resetWorkoutForm(keepDate) {
 }
 function startEdit(id) {
   const w = S.workouts.find(x => x.id === id); if (!w) return;
+  if (w.kind === "run") {
+    const sec = +w.durationSec || 0;
+    inlineId = id; logOpen.weeks.add(String(weekNo(w.date))); logOpen.days.add(w.sessionId || "d:" + w.date);
+    inlineDraft = { run: true, date: w.date, runType: w.runType || "Easy", dist: +toDist(+w.distanceKm || 0).toFixed(2), h: Math.floor(sec / 3600) || "", m: Math.floor(sec % 3600 / 60), s: sec % 60, notes: w.notes || "" };
+    render(); return;
+  }
   inlineId = id;
   logOpen.weeks.add(String(weekNo(w.date))); logOpen.days.add(w.sessionId || "d:" + w.date);
   const base = Array.isArray(w.setsDetail) && w.setsDetail.length ? w.setsDetail : Array.from({ length: Math.max(1, +w.sets || 1) }, () => ({ reps: w.reps, kg: w.kg }));
@@ -2218,7 +2261,7 @@ function renderCalendar(d) {
         <div><span class="eyebrow">Current streak</span><b>${wk(cur)}</b></div>
         <div><span class="eyebrow">Best streak</span><b>${wk(best)}</b></div>
         <div><span class="eyebrow">This month</span><b>${monthWorkouts} workout${monthWorkouts === 1 ? "" : "s"}</b>${monthMin ? `<span class="cap">${fmtDur(monthMin)} trained</span>` : ""}</div>
-        <div class="cal-legend"><span><i class="c1"></i>Push / upper</span><span><i class="c2"></i>Pull</span><span><i class="c3"></i>Legs / lower</span><span><i class="c4"></i>Other</span></div>
+        <div class="cal-legend"><span><i class="c1"></i>Push / upper</span><span><i class="c2"></i>Pull</span><span><i class="c3"></i>Legs / lower</span><span><i class="c4"></i>Runs / other</span></div>
       </div>
     </div>`;
 }
@@ -2285,6 +2328,7 @@ document.addEventListener("click", e => {
 /* ---------- inline editing in the log ---------- */
 let inlineId = null, inlineDraft = null;
 function ieHtml() {
+  if (inlineDraft.run) return rieHtml();
   const d = inlineDraft, u = wU(), opt = (list, v) => list.map(t => `<option${t === v ? " selected" : ""}>${t}</option>`).join("");
   return `<div class="ex ie">
     <div class="ie-grid">
@@ -2307,6 +2351,12 @@ function ieHtml() {
 }
 async function saveInline() {
   const w = S.workouts.find(x => x.id === inlineId), d = inlineDraft; if (!w || !d) return;
+  if (d.run) {
+    const km = fromDist(+d.dist || 0), sec = (+d.h || 0) * 3600 + (+d.m || 0) * 60 + (+d.s || 0);
+    if (!(km > 0) || !(sec > 0)) { toast("Enter the distance and time."); return; }
+    const next = { ...w, date: d.date || w.date, runType: d.runType, name: `${d.runType} run`, distanceKm: +km.toFixed(3), durationSec: Math.round(sec), sessionMinutes: Math.max(1, Math.round(sec / 60)), notes: String(d.notes || "").trim() };
+    inlineId = null; inlineDraft = null; await store.saveWorkout(next); render(); toast("Run updated"); return;
+  }
   const sets = d.sets.filter(x => +x.reps > 0).map(x => ({ reps: Math.round(+x.reps), kg: +x.kg > 0 ? +(+x.kg).toFixed(2) : 0 }));
   if (!d.name.trim()) { toast("Name the exercise."); return; }
   if (!sets.length) { toast("Add reps to at least one set."); return; }
@@ -2438,6 +2488,51 @@ $("#restoreIn").addEventListener("change", async e => {
 /* ---------- offline support ---------- */
 if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
   addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(e => console.warn(e)));
+}
+
+/* ---------- runs ---------- */
+const RUN_TYPES = ["Easy", "Long", "Tempo", "Intervals", "Recovery", "Race", "Trail", "Treadmill"], KM_PER_MI = 1.609344;
+const distU = () => units() === "imperial" ? "mi" : "km";
+const toDist = km => units() === "imperial" ? km / KM_PER_MI : km;
+const fromDist = v => units() === "imperial" ? v * KM_PER_MI : v;
+function fmtDist(km) { return `${fmt(toDist(+km || 0), 2)} ${distU()}`; }
+function fmtTime(sec) { sec = Math.round(sec); const h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60), s = sec % 60; return h ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}` : `${m}:${String(s).padStart(2, "0")}`; }
+function fmtPace(secPerKm) { if (!isFinite(secPerKm) || secPerKm <= 0) return "—"; return `${fmtTime(units() === "imperial" ? secPerKm * KM_PER_MI : secPerKm)} /${distU()}`; }
+const runSecs = () => (+$("#rH").value || 0) * 3600 + (+$("#rM").value || 0) * 60 + (+$("#rS").value || 0);
+function updateRunPace() {
+  const km = fromDist(+$("#rDist").value || 0), sec = runSecs();
+  $("#runPace").textContent = km > 0 && sec > 0 ? fmtPace(sec / km) : `— /${distU()}`;
+}
+$("#runForm").addEventListener("input", updateRunPace);
+$("#runForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const date = $("#rDate").value, km = fromDist(+$("#rDist").value || 0), sec = runSecs(), rt = $("#rType").value;
+  if (!date) { toast("Pick the date of the run."); $("#rDate").focus(); return; }
+  if (!(km > 0)) { toast("Enter how far you ran."); $("#rDist").focus(); return; }
+  if (!(sec > 0)) { toast("Enter how long the run took."); $("#rM").focus(); return; }
+  const id = uid();
+  // a run is its own workout: one entry carrying distance and time
+  store.saveWorkout({ id, kind: "run", date, name: `${rt} run`, runType: rt, type: "Cardio", equipment: "Run", sets: 0, reps: 0, kg: 0,
+    distanceKm: +km.toFixed(3), durationSec: Math.round(sec), minutes: null, notes: $("#rNotes").value.trim(), sessionId: id, sessionMinutes: Math.max(1, Math.round(sec / 60)) });
+  toast(`Run saved to History · ${fmtDist(km)} in ${fmtTime(sec)}`);
+  ["#rDist", "#rH", "#rM", "#rS", "#rNotes"].forEach(x => { $(x).value = ""; }); updateRunPace();
+});
+function rieHtml() {
+  const d = inlineDraft;
+  return `<div class="ex ie">
+    <div class="ie-grid">
+      <label class="f">Date<input type="date" data-ie="date" value="${esc(d.date)}"></label>
+      <label class="f">Type of run<select data-ie="runType">${RUN_TYPES.map(t => `<option${t === d.runType ? " selected" : ""}>${t}</option>`).join("")}</select></label>
+      <label class="f">Distance (${distU()})<input type="number" inputmode="decimal" min="0" step="0.01" data-ie="dist" value="${esc(d.dist)}"></label>
+      <div class="f">Time<div class="run-time">
+        <input type="number" inputmode="numeric" min="0" placeholder="h" aria-label="Hours" data-ie="h" value="${esc(d.h)}">
+        <input type="number" inputmode="numeric" min="0" max="59" placeholder="min" aria-label="Minutes" data-ie="m" value="${esc(d.m)}">
+        <input type="number" inputmode="numeric" min="0" max="59" placeholder="sec" aria-label="Seconds" data-ie="s" value="${esc(d.s)}">
+      </div></div>
+    </div>
+    <label class="f">Notes<input data-ie="notes" value="${esc(d.notes)}"></label>
+    <div class="form-actions"><button class="btn primary" type="button" data-iesave>Save</button><button class="btn" type="button" data-iecancel>Cancel</button></div>
+  </div>`;
 }
 
 /* ---------- full plan view: phases > weeks > days > exercises ---------- */
