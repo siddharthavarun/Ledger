@@ -225,8 +225,20 @@ label.f, .f { display: grid; gap: 6px; font-size: .8rem; font-weight: 500; color
   background: var(--nav); -webkit-backdrop-filter: saturate(180%) blur(20px); backdrop-filter: saturate(180%) blur(20px); border: 1px solid var(--hair); box-shadow: 0 10px 40px rgba(0, 0, 0, .18); }
 .update-bar .btn { padding: 8px 16px; flex: none; }
 /* runs */
-.wk-layout > #runForm { order: 1; }
-.wk-layout > #wForm { order: 2; }
+.wk-layout > #runFold { order: 1; }
+.wk-layout > #wFold { order: 2; }
+[data-fold] h2[role="button"], [data-fold] h3[role="button"] { cursor: pointer; display: inline-flex; align-items: center; gap: 8px; border-radius: 8px; }
+[data-fold] h2[role="button"]::before, [data-fold] h3[role="button"]::before { content: "›"; color: var(--fg2); font-weight: 400; font-size: 1.25em; line-height: 1; transform: rotate(90deg); transition: transform .25s ease; }
+.tile.folded h2[role="button"]::before, .tile.folded h3[role="button"]::before { transform: none; }
+.tile.folded > :not(:first-child) { display: none !important; }
+.bento > .tile.folded { align-self: start; }
+.tile.folded .showcase-head, .tile.folded .cal-head p.cap { margin-bottom: 0; }
+.form-fold > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 10px; }
+.form-fold > summary::-webkit-details-marker { display: none; }
+.form-fold > summary::before { content: "›"; color: var(--fg2); font-size: 1.4rem; line-height: 1; transition: transform .25s ease; }
+.form-fold[open] > summary::before { transform: rotate(90deg); }
+.form-fold > summary .chip { margin-left: auto; }
+.form-fold[open] > summary { margin-bottom: 16px; }
 .run-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr); }
 .run-time { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
 @media (max-width: 420px) { .run-row { grid-template-columns: 1fr; } }
@@ -317,7 +329,9 @@ legend { padding: 0; margin-bottom: 12px; font-weight: 600; font-size: 1.3rem; l
 .plan-days li { min-width: 0; }
 .plan-days li span:first-child { min-width: 0; overflow-wrap: anywhere; }
 .day-chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.plan-card { display: grid; gap: 12px; align-content: start; }
+.plan-card { display: grid; gap: 8px; align-content: start; padding: 22px 24px; }
+.plan-card .plan-head h3 { font-size: 1.2rem; }
+.plan-card .form-actions { margin-top: 6px; }
 .plan-card .meta { display: flex; gap: 6px; flex-wrap: wrap; }
 .plan-days { display: grid; gap: 6px; font-size: .9rem; margin: 0; padding: 0; list-style: none; }
 .plan-days li { display: flex; justify-content: space-between; gap: 8px; }
@@ -461,7 +475,7 @@ button.cal-day:hover { box-shadow: inset 0 0 0 1px var(--liquid-edge); }
 .ex.ie input, .ex.ie select { background: var(--card); }
 .ie-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .wk-layout.stacked { grid-template-columns: 1fr; }
-.wk-layout.stacked > form { order: 2; }
+.wk-layout.stacked > #wFold { order: 2; }
 @media (max-width: 480px) {
   .s-ex-h { grid-template-columns: minmax(0, 1fr) auto 32px; }
   .s-ex-h select { grid-column: 1 / -1; grid-row: 2; }
@@ -554,7 +568,7 @@ button.cal-day:hover { box-shadow: inset 0 0 0 1px var(--liquid-edge); }
       </div>
     </header>
 
-    <figure class="tile showcase" data-liquid>
+    <figure class="tile showcase" data-liquid data-fold="weight">
       <div class="showcase-head">
         <div>
           <h2>Body weight</h2>
@@ -573,27 +587,27 @@ button.cal-day:hover { box-shadow: inset 0 0 0 1px var(--liquid-edge); }
     <div class="stats" id="heroStats"></div>
 
     <div class="bento">
-      <figure class="tile span-2" data-liquid>
+      <figure class="tile span-2" data-liquid data-fold="volume">
         <h3>Training volume</h3>
         <p class="cap" id="volUnit">Sets × reps × load, per week.</p>
         <div class="chart" id="volChart" style="margin-top:16px"></div>
       </figure>
-      <aside class="tile" data-liquid>
+      <aside class="tile" data-liquid data-fold="goal">
         <h3>Goal</h3>
         <div id="goalBox"></div>
       </aside>
-      <section class="tile span-2" data-liquid>
+      <section class="tile span-2" data-liquid data-fold="weekly">
         <h3>Weekly insights</h3>
         <p class="cap">Each week, compared with the one before.</p>
         <ol class="weeks" id="weekList"></ol>
       </section>
-      <aside class="tile" data-liquid>
+      <aside class="tile" data-liquid data-fold="mix">
         <h3>Your mix</h3>
         <p class="cap">Last 4 weeks, by sets.</p>
         <div id="mixBox"></div>
       </aside>
-      <section class="tile span-3" id="calTile" data-liquid></section>
-      <section class="tile span-3" id="planTile" data-liquid></section>
+      <section class="tile span-3" id="calTile" data-liquid data-fold="calendar"></section>
+      <section class="tile span-3" id="planTile" data-liquid data-fold="plan"></section>
     </div>
   </section>
 
@@ -607,8 +621,10 @@ button.cal-day:hover { box-shadow: inset 0 0 0 1px var(--liquid-edge); }
     <div id="finishCard"></div>
     <div id="planToday" style="margin-bottom:16px"></div>
     <div class="wk-layout">
-      <form class="tile form" id="runForm" novalidate data-liquid>
-        <div class="form-head"><h3>Log a run</h3><span class="chip blue" id="runPace" aria-live="polite">— /km</span></div>
+      <details class="tile form-fold" id="runFold" data-liquid>
+        <summary class="form-head"><h3>Log a run</h3><span class="chip blue" id="runPace" aria-live="polite">— /km</span></summary>
+      <form class="form" id="runForm" novalidate>
+        
         <div class="row">
           <label class="f">Date<input type="date" id="rDate"></label>
           <label class="f">Type of run
@@ -628,8 +644,11 @@ button.cal-day:hover { box-shadow: inset 0 0 0 1px var(--liquid-edge); }
         <label class="f">Notes<input id="rNotes" placeholder="Optional: route, splits, how it felt"></label>
         <div class="form-actions"><button class="btn primary" type="submit">Add run</button></div>
       </form>
-      <form class="tile form" id="wForm" novalidate data-liquid>
-        <div class="form-head"><h3 id="wFormTitle">Log an exercise</h3><span class="chip blue" id="wWeek">Week 1</span></div>
+      </details>
+      <details class="tile form-fold" id="wFold" data-liquid>
+        <summary class="form-head"><h3 id="wFormTitle">Log an exercise</h3><span class="chip blue" id="wWeek">Week 1</span></summary>
+      <form class="form" id="wForm" novalidate>
+        
         <div class="row">
           <label class="f">Date<input type="date" id="wDate" required></label>
           <label class="f">Workout type
@@ -659,6 +678,7 @@ button.cal-day:hover { box-shadow: inset 0 0 0 1px var(--liquid-edge); }
           <button class="btn" type="button" id="wCancel" hidden>Cancel edit</button>
         </div>
       </form>
+      </details>
 
       <p class="history-link">Finished workouts are saved in <button class="link link-cta" type="button" data-go="history">History</button></p>
     </div>
@@ -1199,6 +1219,7 @@ function render() {
   renderPlanTile(d, curN);
   renderFinish();
   renderCalendar(d);
+  document.querySelectorAll("[data-fold]").forEach(t => { const h = t.querySelector("h2, h3"); if (h) { h.tabIndex = 0; h.setAttribute("role", "button"); h.setAttribute("aria-expanded", String(!t.classList.contains("folded"))); } });
   requestAnimationFrame(() => liquids.forEach(l => l.refresh()));
 }
 function renderBanner() {
@@ -1981,8 +2002,6 @@ function renderPlans() {
     const on = p.id === act, n = sum(p.days, d => d.exercises.length);
     return `<article class="tile plan-card" data-liquid>
       <div class="plan-head"><h3>${esc(p.name)}</h3>${on ? `<span class="active-dot">Active</span>` : ""}</div>
-      <div class="meta"><span class="chip">${p.days.length} days</span><span class="chip">${n} exercises</span>${p.source ? `<span class="chip" title="${esc(p.source)}">${esc(p.source)}</span>` : ""}</div>
-      <ul class="plan-days">${p.days.slice(0, 7).map(d => `<li><span>${esc(fullLabel(d))}</span><span>${esc(d.type)} · ${d.exercises.length}</span></li>`).join("")}${p.days.length > 7 ? `<li class="muted">+ ${p.days.length - 7} more days</li>` : ""}</ul>
       ${p.tips && p.tips.length ? `<details class="plan-full plan-tips" data-pk="${esc(p.id + "|tips")}"${planOpenKeys.has(p.id + "|tips") ? " open" : ""}><summary>Tips & notes · ${p.tips.length}</summary><ul>${p.tips.map(t => `<li>${esc(t)}</li>`).join("")}</ul></details>` : ""}
       ${p.guide && p.guide.length ? `<details class="plan-full plan-guide" data-pk="${esc(p.id + "|guide")}"${planOpenKeys.has(p.id + "|guide") ? " open" : ""}><summary>Guide · ${p.guide.length} section${p.guide.length > 1 ? "s" : ""}</summary><div class="pt">${p.guide.map((g, gi) => { const k = p.id + "|g|" + gi; return `<details class="pt-sub" data-pk="${esc(k)}"${planOpenKeys.has(k) ? " open" : ""}><summary>${esc(g.title || "Section " + (gi + 1))}<span></span></summary><div class="guide-body">${esc(g.body)}</div></details>`; }).join("")}</div></details>` : ""}
       ${planTree(p)}
@@ -2543,7 +2562,7 @@ $("#restoreIn").addEventListener("change", async e => {
 });
 
 /* ---------- offline support ---------- */
-const APP_VERSION = "22";
+const APP_VERSION = "25";
 $("#appVersion").textContent = "App version " + APP_VERSION;
 if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
   // a new version takes over in the background; offer a reload instead of waiting for the next launch
@@ -2635,6 +2654,24 @@ function planTree(p) {
   const fk = p.id + "|full";
   return `<details class="plan-full" data-pk="${esc(fk)}"${op(fk)}><summary>Show full plan · ${p.days.length} days</summary><div class="pt">${html}</div></details>`;
 }
+
+/* ---------- collapsible Insights cards, remembered per device ---------- */
+document.querySelectorAll("[data-fold]").forEach(t => { try { if (localStorage.getItem("rl-fold-" + t.dataset.fold) === "1") t.classList.add("folded"); } catch (e) {} });
+function toggleFold(h) {
+  const t = h.closest("[data-fold]"); if (!t || h !== t.querySelector("h2, h3")) return false;
+  t.classList.toggle("folded"); h.setAttribute("aria-expanded", String(!t.classList.contains("folded")));
+  try { localStorage.setItem("rl-fold-" + t.dataset.fold, t.classList.contains("folded") ? "1" : "0"); } catch (e) {}
+  liquids.forEach(l => l.refresh()); return true;
+}
+document.addEventListener("click", e => { const h = e.target.closest("[data-fold] h2, [data-fold] h3"); if (h) toggleFold(h); });
+document.addEventListener("keydown", e => { if ((e.key === "Enter" || e.key === " ") && e.target.matches && e.target.matches("[data-fold] h2[role=button], [data-fold] h3[role=button]")) { e.preventDefault(); toggleFold(e.target); } });
+
+/* ---------- collapsible Workouts forms, remembered per device ---------- */
+["runFold", "wFold"].forEach(id => {
+  const el = document.getElementById(id);
+  try { el.open = localStorage.getItem("rl-" + id) === "1"; } catch (e) {}
+  el.addEventListener("toggle", () => { try { localStorage.setItem("rl-" + id, el.open ? "1" : "0"); } catch (e) {} });
+});
 
 /* ---------- smooth open and close for fold-out sections ---------- */
 const calmMotion = matchMedia("(prefers-reduced-motion: reduce)");
