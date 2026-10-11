@@ -356,6 +356,12 @@ legend { padding: 0; margin-bottom: 12px; font-weight: 600; font-size: 1.3rem; l
 .plan-tips li::marker { color: var(--accent); }
 .pt-note { color: var(--fg2); font-style: italic; display: block !important; }
 .day-note { margin: 8px 0 0; font-style: italic; }
+.rv-guide { display: grid; gap: 10px; margin-top: 16px; }
+.rv-guide-h { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.rv-gsec { display: grid; gap: 6px; padding: 12px; border-radius: 14px; background: var(--card); border: 1px solid var(--hair); }
+.rv-gsec-h { display: grid; grid-template-columns: minmax(0, 1fr) 32px; gap: 8px; align-items: center; }
+.rv-gsec textarea { font-size: .86rem; line-height: 1.45; }
+.guide-body { white-space: pre-line; font-size: .88rem; line-height: 1.55; margin: 4px 0 12px 18px; padding-left: 12px; border-left: 2px solid var(--hair); overflow-wrap: anywhere; }
 .rv-foot { display: flex; justify-content: center; margin-top: 18px; }
 /* full plan: phases > weeks > days > exercises */
 .plan-full { border-top: 1px solid var(--hair); padding-top: 10px; }
@@ -781,9 +787,9 @@ button.cal-day:hover { box-shadow: inset 0 0 0 1px var(--liquid-edge); }
     <div class="drop" id="drop" data-liquid>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M12 17v-6M9.5 13.5 12 11l2.5 2.5"/></svg>
       <h3>Import a workout plan</h3>
-      <p class="cap">Drop a PDF here or choose one. You can review every exercise before saving.</p>
+      <p class="cap">Drop a PDF or a Rep Ledger plan file (.json) here, or choose one. You can review everything before saving.</p>
       <span class="btn primary" aria-hidden="true">Choose PDF</span>
-      <input type="file" id="pdfIn" accept="application/pdf,.pdf" aria-label="Choose a workout plan PDF">
+      <input type="file" id="pdfIn" accept="application/pdf,.pdf,application/json,.json" aria-label="Choose a workout plan PDF or plan file">
     </div>
     <div class="status-line" id="pdfStatus" role="status" aria-live="polite"></div>
     <div class="plan-create"><span>No PDF?</span><button class="btn" type="button" id="createPlan">Create a plan from scratch</button></div>
@@ -1600,9 +1606,9 @@ function normalizePlan(raw, source, parsedBy) {
       const load = +e.load > 0 ? +e.load : null;
       const loadKg = load == null ? null : +((unit === "lb" || (!unit && units() === "imperial")) ? load * KG_PER_LB : load).toFixed(2);
       return { name, sets: Math.max(1, Math.min(20, parseInt(e.sets) || 3)), reps: String(e.reps ?? "").trim().slice(0, 20) || "10",
-        loadKg, equipment: EQUIP.includes(e.equipment) ? e.equipment : guessEquip(name), notes: String(e.notes || "").trim().slice(0, 160) };
+        loadKg, equipment: EQUIP.includes(e.equipment) ? e.equipment : guessEquip(name), notes: String(e.notes || "").trim().slice(0, 400) };
     }).filter(Boolean);
-    return { group, label, type: PLAN_TYPES.includes(d && d.type) ? d.type : guessType(label), notes: String((d && d.notes) || "").trim().slice(0, 400), exercises };
+    return { group, label, type: PLAN_TYPES.includes(d && d.type) ? d.type : guessType(label), notes: String((d && d.notes) || "").trim().slice(0, 1200), exercises };
   }).filter(d => d.exercises.length).filter((d, i, all) => {
     // the same workout repeated with no new week or phase heading is a duplicate: keep the first copy
     const focus = x => (x.group + "|" + x.label.replace(/^day\s*\d+\s*·?\s*/i, "")).toLowerCase();
@@ -1615,8 +1621,9 @@ function normalizePlan(raw, source, parsedBy) {
     });
   });
   const name = tidyCase(String((raw && raw.name) || "").trim()).slice(0, 80) || source.replace(/\.pdf$/i, "").slice(0, 60);
-  const tips = [...new Set((Array.isArray(raw && raw.tips) ? raw.tips : []).map(t => String(t).replace(/\s+/g, " ").trim()).filter(t => t.length >= 3))].slice(0, 20).map(t => t.slice(0, 400));
-  return { id: uid(), name, source, parsedBy, importedAt: new Date().toISOString(), tips, days };
+  const tips = [...new Set((Array.isArray(raw && raw.tips) ? raw.tips : []).map(t => String(t).replace(/\s+/g, " ").trim()).filter(t => t.length >= 3))].slice(0, 40).map(t => t.slice(0, 600));
+  const guide = (Array.isArray(raw && raw.guide) ? raw.guide : []).map(g => ({ title: String((g && g.title) || "").trim().slice(0, 120), body: String((g && g.body) || "").replace(/\r/g, "").trim().slice(0, 12000) })).filter(g => g.title || g.body).slice(0, 30);
+  return { id: uid(), name, source, parsedBy, importedAt: new Date().toISOString(), tips, guide, days };
 }
 
 /* built-in reader: one exercise per line, like "Bench press 4 x 8" or "Squat - 3 sets of 10 @ 60kg".
@@ -1780,7 +1787,20 @@ function setStatus(msg, kind, stoppable) {
   el.className = "status-line" + (kind === "err" ? " err" : "");
   el.innerHTML = (kind === "busy" ? `<span class="spinner" aria-hidden="true"></span>` : "") + `<span>${esc(msg || "")}</span>` + (stoppable ? ` <button class="link" id="stopImport" type="button">Stop</button>` : "");
 }
+async function importPlanFile(file) {
+  let data;
+  try { data = JSON.parse(await file.text()); } catch (e) { return setStatus("That file isn't a readable plan file.", "err"); }
+  const raw = data && data.format === "rep-ledger-plan" ? data.plan : (data && Array.isArray(data.days) ? data : null);
+  if (!raw) return setStatus(data && data.app === "rep-ledger" ? "That's a full backup. Restore it from Profile → Your data instead." : "That file isn't a Rep Ledger plan.", "err");
+  const plan = normalizePlan(raw, raw.source || file.name, "file");
+  if (!plan.days.length) return setStatus("This plan file has no days with exercises.", "err");
+  draft = plan; renderReview();
+  const n = sum(plan.days, d => d.exercises.length);
+  setStatus(`Loaded ${plan.days.length} days, ${n} exercises, ${plan.tips.length} tips and ${plan.guide.length} guide sections. Review below, then save.`);
+  $("#review").scrollIntoView({ behavior: "smooth", block: "start" });
+}
 async function importPdf(file) {
+  if (file && (/json/i.test(file.type) || /\.json$/i.test(file.name))) return importPlanFile(file);
   if (!file || importCtl) return;
   if (!/pdf/i.test(file.type) && !/\.pdf$/i.test(file.name)) return setStatus("That file isn't a PDF. Choose a .pdf file.", "err");
   if (file.size > 15 * 1024 * 1024) return setStatus("That PDF is over 15 MB. Try a smaller export.", "err");
@@ -1825,6 +1845,9 @@ function renderReview() {
         <button class="link" type="button" data-rv="discard">${mode === "import" ? "Discard" : "Cancel"}</button></div>
     </div>
     <label class="f rv-tips">Tips & notes for the whole plan<textarea id="rvTips" rows="4" placeholder="One tip per line, e.g. Add 2.5 kg once every set reaches the top of the rep range.">${esc(draft.tipsText ?? (draft.tips || []).join("\n"))}</textarea></label>
+    <div class="rv-guide"><div class="rv-guide-h"><span class="f">Guide sections (longer notes, like nutrition)</span><button class="btn ghost" type="button" data-gadd>+ Add section</button></div>
+      ${(draft.guide || []).map((g, gi) => `<div class="rv-gsec"><div class="rv-gsec-h"><input aria-label="Section title" placeholder="Section title" data-gs="${gi}" data-gk="title" value="${esc(g.title)}"><button class="icon-btn" type="button" data-gdel="${gi}" aria-label="Remove section">×</button></div><textarea aria-label="Section text" rows="${Math.min(14, Math.max(4, String(g.body).split("\n").length + 1))}" data-gs="${gi}" data-gk="body">${esc(g.body)}</textarea></div>`).join("")}
+    </div>
     ${draft.days.map((d, di) => `<div class="review-day">
       <div class="rv-day-tools"><span class="eyebrow">Day ${di + 1} of ${draft.days.length}</span>
         <span class="rv-tools">
@@ -1853,6 +1876,7 @@ $("#review").addEventListener("input", e => {
   const t = e.target; if (!draft) return;
   if (t.id === "rvName") { draft.name = t.value; return; }
   if (t.id === "rvTips") { draft.tipsText = t.value; return; }
+  if (t.dataset.gs != null) { const g = (draft.guide || [])[+t.dataset.gs]; if (g) g[t.dataset.gk] = t.value; return; }
   const di = +t.dataset.d, k = t.dataset.k; if (!k || !draft.days[di]) return;
   if (t.dataset.e == null) { draft.days[di][k] = t.value; return; }
   const ex = draft.days[di].exercises[+t.dataset.e]; if (!ex) return;
@@ -1871,7 +1895,8 @@ async function reviewAction(kind) {
   if (!days.length) { toast("Add at least one exercise with a name."); return; }
   const plan = { id: draft.id, name, source: draft.source || "", parsedBy: draft.parsedBy || "manual", importedAt: draft.importedAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(), days: days.map(x => x.day),
-    tips: String(draft.tipsText ?? (draft.tips || []).join("\n")).split("\n").map(x => x.replace(/^[\s•·*\-–]+/, "").trim()).filter(Boolean).slice(0, 30) };
+    tips: String(draft.tipsText ?? (draft.tips || []).join("\n")).split("\n").map(x => x.replace(/^[\s•·*\-–]+/, "").trim()).filter(Boolean).slice(0, 40),
+    guide: (draft.guide || []).map(g => ({ title: String(g.title || "").trim(), body: String(g.body || "").trim() })).filter(g => g.title || g.body) };
   draft = null; renderReview();
   await store.savePlan(plan);
   if (mode === "edit") {
@@ -1907,6 +1932,8 @@ document.addEventListener("click", e => {
     openEditor(copy); return;
   }
   if (!draft) return;
+  if (t.closest("[data-gadd]")) { draft.guide = draft.guide || []; draft.guide.push({ title: "", body: "" }); renderReview(); const ins = $$('#review [data-gk="title"]'); ins[ins.length - 1].focus(); return; }
+  const gd = t.closest("[data-gdel]"); if (gd) { draft.guide.splice(+gd.dataset.gdel, 1); renderReview(); return; }
   const day = (attr) => { const b = t.closest(`[${attr}]`); return b ? [b, +b.getAttribute(attr)] : [null, -1]; };
   let [b, di] = day("data-rvaddex");
   if (b) { draft.days[di].exercises.push(blankEx()); renderReview(); const names = $$(`#review [data-d="${di}"][data-k="name"]`); names[names.length - 1].focus(); return; }
@@ -1950,6 +1977,7 @@ function renderPlans() {
       <div class="meta"><span class="chip">${p.days.length} days</span><span class="chip">${n} exercises</span>${p.source ? `<span class="chip" title="${esc(p.source)}">${esc(p.source)}</span>` : ""}</div>
       <ul class="plan-days">${p.days.slice(0, 7).map(d => `<li><span>${esc(fullLabel(d))}</span><span>${esc(d.type)} · ${d.exercises.length}</span></li>`).join("")}${p.days.length > 7 ? `<li class="muted">+ ${p.days.length - 7} more days</li>` : ""}</ul>
       ${p.tips && p.tips.length ? `<details class="plan-full plan-tips" data-pk="${esc(p.id + "|tips")}"${planOpenKeys.has(p.id + "|tips") ? " open" : ""}><summary>Tips & notes · ${p.tips.length}</summary><ul>${p.tips.map(t => `<li>${esc(t)}</li>`).join("")}</ul></details>` : ""}
+      ${p.guide && p.guide.length ? `<details class="plan-full plan-guide" data-pk="${esc(p.id + "|guide")}"${planOpenKeys.has(p.id + "|guide") ? " open" : ""}><summary>Guide · ${p.guide.length} section${p.guide.length > 1 ? "s" : ""}</summary><div class="pt">${p.guide.map((g, gi) => { const k = p.id + "|g|" + gi; return `<details class="pt-sub" data-pk="${esc(k)}"${planOpenKeys.has(k) ? " open" : ""}><summary>${esc(g.title || "Section " + (gi + 1))}<span></span></summary><div class="guide-body">${esc(g.body)}</div></details>`; }).join("")}</div></details>` : ""}
       ${planTree(p)}
       <div class="form-actions">${on ? `<button class="btn primary" data-go="workouts">Train today</button><button class="btn" data-plan-off>Deactivate</button>` : `<button class="btn primary" data-plan-on="${esc(p.id)}">Activate</button>`}<button class="btn" data-plan-edit="${esc(p.id)}">Edit</button><button class="btn ghost danger" data-plan-del="${esc(p.id)}">Delete</button></div>
     </article>`;
@@ -2506,7 +2534,7 @@ $("#restoreIn").addEventListener("change", async e => {
 });
 
 /* ---------- offline support ---------- */
-const APP_VERSION = "17";
+const APP_VERSION = "18";
 $("#appVersion").textContent = "App version " + APP_VERSION;
 if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
   // a new version takes over in the background; offer a reload instead of waiting for the next launch
