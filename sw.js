@@ -1,6 +1,6 @@
 // Rep Ledger service worker: keeps the app usable offline.
 // Bump VERSION whenever you change index.html so phones pick up the new version.
-const VERSION = "rep-ledger-v15";
+const VERSION = "rep-ledger-v16";
 const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icons/icon-192.png", "./icons/icon-512.png", "./icons/apple-touch-icon.png", "./icons/favicon.svg"];
 
 self.addEventListener("install", e => {
@@ -21,7 +21,8 @@ self.addEventListener("fetch", e => {
   if (url.origin === location.origin) {
     if (req.mode === "navigate") {
       // Network first so updates arrive; cached copy when offline.
-      e.respondWith(fetch(req)
+      // no-store: skip the browser's HTTP cache so a new upload shows on the next launch
+      e.respondWith(fetch(req, { cache: "no-store" })
         .then(res => { const copy = res.clone(); caches.open(VERSION).then(c => c.put("./index.html", copy)); return res; })
         .catch(() => caches.match("./index.html")));
       return;
